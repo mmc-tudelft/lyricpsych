@@ -1,13 +1,75 @@
 from os.path import basename, join
 import glob
 import json
+
 from tqdm import tqdm
+import numpy as np
+from scipy import sparse as sp
+from sklearn.feature_extraction.text import TfidfTransformer
 
 from .files import hexaco
 
 INVENTORIES = {
     'hexaco': hexaco()
 }
+
+
+def parse_row(line):
+    cells = line.split(',')
+    tid = cells[0]
+    mxm_tid = cells[1]
+    wc = [[int(c) for c in cell.split(':')] for cell in cells[2:]]
+    return tid, mxm_tid, wc
+
+
+def build_mat(lines, verbose=True):
+    with tqdm(total=len(lines[18:]), disable=not verbose) as prog:
+        tids = {}
+        mxm_tids = {}
+        rows, cols, vals = [], [], []
+        for i, line in enumerate(lines[18:]):
+            tid, mxm_tid, wc = parse_row(line)
+            col, val = zip(*wc)
+            tids[tid] = i
+            mxm_tids[mxm_tid] = i
+            rows.append(np.full((len(wc),), i))
+            cols.append(col)
+            vals.append(val)
+            prog.update()
+    rows, cols, vals = tuple(map(np.concatenate, (rows, cols, vals)))
+    
+    X = sp.coo_matrix(
+        (vals, (rows, cols - 1)),
+        shape=(len(lines[18:]), 5000)
+    ).tocsr()
+    return X, tids, mxm_tids
+
+
+def load_mxm_bow(fn, tfidf=True):
+    """ Load MusixMatch BOW data matched to MSD
+    
+    Inputs:
+        fn (string): filename to the MxM BoW
+    
+    Returns:
+        scipy.sparse.csr_matrix: corpus bow matrix
+        list of string: words
+        dict: map from MxM tids to MSD tids
+        sklearn.feature_extraction.text.TfidfTransformer: tfidf object
+    """
+    with open(fn) as f:
+        lines = [line.strip('\n') for line in f]
+        
+    words = lines[17][1:].split(',')
+    X, tids, mxm_tids = build_mat(lines)
+    if tfidf:
+        tfidf_ = TfidfTransformer(sublinear_tf=True)
+        X = tfidf_.fit_transform(X)
+    else:
+        tfidf_ = None
+    
+    tid_map = dict(zip(tids, mxm_tids)) 
+    return X, words, tid_map, tfidf_
 
 
 def load_mxm_lyrics(fn):
