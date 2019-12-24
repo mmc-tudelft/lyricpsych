@@ -5,13 +5,42 @@ import json
 from tqdm import tqdm
 import numpy as np
 from scipy import sparse as sp
+import pandas as pd
 from sklearn.feature_extraction.text import TfidfTransformer
 
-from .files import hexaco
+from .files import hexaco, personality_adj
+from .utils import preprocessing, filter_english_plsa
 
 INVENTORIES = {
     'hexaco': hexaco()
 }
+
+
+class Corpus:
+    def __init__(self, ids, texts, filt_non_eng=True, 
+                 filter_stopwords=True, filter_thresh=[5, .3]):
+        """"""
+        self.ids = ids
+        self.texts = texts
+        self.filt_non_eng = filt_non_eng
+        self.filter_stopwords = filter_stopwords
+        self.filter_thresh = filter_thresh
+        
+        if filt_non_eng:
+            self.ids, self.texts = tuple(zip(
+                *filter_english_plsa(list(zip(self.ids, self.texts)))
+            ))
+        self._preproc()
+        
+    def _preproc(self):
+        output = preprocessing(
+            self.texts, 'unigram',
+            self.filter_thresh, self.filter_stopwords
+        )
+        self.ngram_corpus = output[0]
+        self.corpus = output[1]
+        self.id2word = output[2]
+        self.doc_term = output[3]
 
 
 def parse_row(line):
@@ -68,7 +97,7 @@ def load_mxm_bow(fn, tfidf=True):
     else:
         tfidf_ = None
     
-    tid_map = dict(zip(tids, mxm_tids)) 
+    tid_map = dict(zip(tids, mxm_tids))
     return X, words, tid_map, tfidf_
 
 
@@ -113,13 +142,14 @@ def load_lyrics_db(path, fmt='json', verbose=True):
     Returns:
         list of tuple: lyrics data
     """
-    return [
+    db = [
         load_mxm_lyrics(fn)
         for fn in tqdm(
             glob.glob(join(path, '*.{}'.format(fmt))),
             disable=not verbose, ncols=80
         )
     ]
+    return [(tid, lyrics) for tid, lyrics in db if lyrics != '']
 
 
 def load_inventory(inventory='hexaco'):
@@ -135,4 +165,22 @@ def load_inventory(inventory='hexaco'):
         raise ValueError('[ERROR] {} is not supported!'.format(inventory))
         
     y = json.load(open(INVENTORIES[inventory]))['inventory']
-    return list(y.items()) 
+    return list(y.items())
+
+
+def load_personality_adj():
+    """ Load personality adjective from Saucier, Goldbberg 1996
+    
+    Returns:
+        pandas.DataFrame: personality adjectives
+    """
+    with open(personality_adj()) as f:
+        lines = [
+            (line.lower().strip('\n')
+             .replace('*','').split(','))
+            for line in f
+        ]
+    return {
+        line[0]: [w for w in line[1:] if w != '']
+        for line in lines
+    }
