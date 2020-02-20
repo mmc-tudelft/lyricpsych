@@ -1,14 +1,19 @@
+import os
 import pkg_resources
 
 
+LIWC = os.environ['LIWC_PATH']  # this is required to be set
 HEXACO = 'data/hexaco.json'
-PERS_ADJ = 'data/personality_adjectives.csv'
+PERS_ADJ = 'data/personality_adjectives.json'
+VAL_WORDS = 'data/value_inventory_Wilson18.json'
 MXM2MSD = 'data/mxm2msd.txt'
 
 
 __all__ = [
     'hexaco',
     'personality_adj',
+    'value_words',
+    'liwc_dict',
     'mxm2msd'
 ]
 
@@ -34,6 +39,24 @@ def personality_adj():
     """
     return pkg_resources.resource_filename(__name__, PERS_ADJ)
     
+    
+def value_words():
+    """ Read the filename of values 
+    
+    Returns:
+        str: filename of value words 
+    """
+    return pkg_resources.resource_filename(__name__, VAL_WORDS)
+
+    
+def liwc_dict():
+    """ Read the filename of LIWC dictionary
+    
+    Returns:
+        str: filename of LIWC dictionary
+    """
+    return pkg_resources.resource_filename(__name__, LIWC)
+
     
 def mxm2msd():
     """ Read the filename of map between MxM and MSD

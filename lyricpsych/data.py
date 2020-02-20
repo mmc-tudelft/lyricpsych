@@ -1,4 +1,5 @@
 from os.path import basename, join
+from collections import OrderedDict
 import glob
 import json
 
@@ -8,7 +9,7 @@ from scipy import sparse as sp
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfTransformer
 
-from .files import hexaco, personality_adj
+from .files import hexaco, personality_adj, value_words, liwc_dict, mxm2msd
 from .utils import preprocessing, filter_english_plsa
 
 INVENTORIES = {
@@ -131,6 +132,23 @@ def load_mxm_lyrics(fn):
     return tid, ' '.join(lyrics_text)
 
 
+def load_mxm2msd():
+    """ Load the id-map between MxM and MSD
+    
+    Inputs:
+        fn (str): filename
+    
+    Returns:
+        dict[str] -> str: MxM to MSD tid
+    """
+    res = {}
+    with open(mxm2msd()) as f:
+        for line in f:
+            mxm, msd = line.strip().split(',')
+            res[mxm] = msd
+    return res
+
+
 def load_lyrics_db(path, fmt='json', verbose=True):
     """ Load loyrics db (crawled) into memory
     
@@ -172,15 +190,24 @@ def load_personality_adj():
     """ Load personality adjective from Saucier, Goldbberg 1996
     
     Returns:
-        pandas.DataFrame: personality adjectives
+        dict[string] -> list of strings: personality adjectives
     """
-    with open(personality_adj()) as f:
-        lines = [
-            (line.lower().strip('\n')
-             .replace('*','').split(','))
-            for line in f
-        ]
-    return {
-        line[0]: [w for w in line[1:] if w != '']
-        for line in lines
-    }
+    return json.load(open(personality_adj()))
+
+
+def load_value_words():
+    """ Load value words from Wilson et al. 2018 
+    
+    Returns:
+        dict[string] -> list of strings: value words 
+    """
+    return json.load(open(value_words()))
+
+
+def load_liwc_dict(): 
+    """ Load value LIWC dictionary 
+    
+    Returns:
+        dict[string] -> list of strings: value words
+    """
+    return json.load(open(liwc_dict()), object_pairs_hook=OrderedDict)
