@@ -24,6 +24,10 @@ class FactorizationMachine(nn.Module):
         self.n_negs = n_negs
         # TODO: generalization of the device selection (not only for cuda)
         self.target_device = 'cuda' if use_gpu else 'cpu'
+
+    @property
+    def device(self):
+        return next(self.parameters()).device
         
     def _init_embeddings(self):
         """"""
@@ -116,8 +120,7 @@ class FactorizationMachine(nn.Module):
     def predict_user(self, user):
         if not hasattr(self, 'embeddings_'):
             raise ValueError('You should call .fit first!')
-
-        user = torch.LongTensor([user]).to(self.target_device)
+        user = torch.LongTensor([user]).to(self.device)
         user = self.embeddings_['user'](user)
         u_w = user[..., -1][..., None]  # (bsz, 1)
         u_v = user[..., :-1]  # (bsz, k)
@@ -214,7 +217,7 @@ class FactorizationMachine(nn.Module):
         finally:
             # update the cached factors for faster inference
             self.cpu()  # since below process eats up lots of memory
-            self._update_z(feats.to('cpu'))
+            self._update_z(feats.to('cpu'), verbose=verbose)
             self.to(self.target_device)
 
     
@@ -268,22 +271,6 @@ class RecFeatDataset(Dataset):
         i = torch.LongTensor(np.r_[pos, negs]).to(self.device)
         y = torch.LongTensor([1] + [-1] * self.n_negs).to(self.device)
         return u[:, None], i[:, None], y
-    
-    def _draw_batch(self, user_item, item_feature, batch_sz):
-        """"""
-        U, I, Y, X = [], [], [], []
-        for u in np.random.choice(user_item.shape[0], batch_sz, False): 
-            pos, negs = self._draw_data(u, user_item)
-            u, i, y = self.preproc(u, pos, negs)
-            x = item_feature[i[:, 0]].to(self.target_device)
-
-            U.append(u)
-            I.append(i)
-            Y.append(y)
-            X.append(x)
-            
-        return (torch.cat(U, dim=0), torch.cat(I, dim=0),
-                torch.cat(Y, dim=0), torch.cat(X, dim=0))
 
     def __len__(self):
         return self.user_item.shape[0]
