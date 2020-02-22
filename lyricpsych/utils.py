@@ -406,7 +406,7 @@ def prepare_feature(feature_fn):
     for i, feat in enumerate(feature_sets):
         features[feat] = feature[:, bounds[i]:bounds[i+1]]  
     
-    return features, track2id, pca, sclr
+    return features, track2id, pca, sclr, feature_sets
 
 
 def get_all_comb(cases, include_null=False):
