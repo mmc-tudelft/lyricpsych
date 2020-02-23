@@ -92,45 +92,31 @@ class FactorizationMachine(nn.Module):
         if not hasattr(self, 'embeddings_'):
             raise ValueError('You should call .fit first!')
 
-        n_items = item_feature.shape[0]
-        Z = torch.zeros((item_feature.shape[0], self.k+1))
-        Z2 = torch.zeros((item_feature.shape[0], self.k))
-        for i in tqdm(range(n_items), disable=not verbose, ncols=80):
-            
-            item = torch.LongTensor([i])
-            feat = item_feature[i]
+        # update item z
+        feats = torch.FloatTensor(item_feature).to(self.device)
+        vi = self.embeddings_['item'].weight.detach()
+        vf = self.embeddings_['feat'].weight.detach()
+        zf = feats @ vf
+        zf2 = feats**2 @ vf**2
 
-            z = [self.embeddings_['item'](item).detach()]
-            if self.embeddings_['feat'].sparse:
-                z += [self.embeddings_['feat'](feat).detach()]
-            else:
-                z += [
-                    (self.embeddings_['feat'].weight * feat[..., None]).detach()
-                ]
-            z = torch.cat(z)
+        # raise one blank dimension for batch dim
+        z = (vi + zf)[None]
+        z2 = (vi**2 + zf2)[None]
 
-            Z[i] = z.sum(0)
-            Z2[i] = (z[..., :-1]**2).sum(0)
-                
         # register
-        self.register_buffer('Z_v', Z[..., :-1])
-        self.register_buffer('Z_w', Z[..., -1][..., None])
-        self.register_buffer('Z2_v', Z2)
-
+        self.register_buffer('z', z)
+        self.register_buffer('z2', z2)
+        
     def predict_user(self, user):
         if not hasattr(self, 'embeddings_'):
             raise ValueError('You should call .fit first!')
         user = torch.LongTensor([user]).to(self.device)
-        user = self.embeddings_['user'](user)
-        u_w = user[..., -1][..., None]  # (bsz, 1)
-        u_v = user[..., :-1]  # (bsz, k)
-        
-        # infer
-        w = u_w[:, None] + self.Z_w[None]
-        v = u_v[:, None] + self.Z_v[None]
-        v2 = u_v[:, None]**2 + self.Z2_v[None]
-        
-        s = self.w0 + w[:, 0] + (v**2 - v2).sum(-1) * .5
+        vu = self.embeddings_['user'](user)[:, None]
+        w = self.z[..., -1] + vu[..., -1]
+        v = (self.z[..., :-1] + vu[..., :-1])**2
+        v -= (self.z2[..., :-1] + vu[..., :-1]**2)
+        v = v.sum(-1) * .5
+        s = self.w0 + w + v
         return s[0]
         
     def forward(self, u, i, feats):
