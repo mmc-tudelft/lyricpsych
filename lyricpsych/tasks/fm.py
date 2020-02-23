@@ -365,6 +365,7 @@ class FactorizationMachine2(nn.Module):
         self._init_embeddings()
         if self.target_device != 'cpu':
             self.to(self.target_device)
+            feats = feats.to(self.device)
         
         # init optimizer
         self._init_optimizer()
@@ -384,7 +385,7 @@ class FactorizationMachine2(nn.Module):
                         # retrieve interaction slice
                         y = user_item[u]
                         y.data[:] = 1
-                        y = scisp2tchsp(y.tocoo())
+                        y = scisp2tchsp(y.tocoo()).to(self.device)
                         
                         # update item z
                         vu = self.embeddings_['user'](torch.LongTensor(u).to(self.device))
@@ -410,11 +411,13 @@ class FactorizationMachine2(nn.Module):
                         
                         # compute the main loss
                         # TODO: generalize loss function
-                        loss = F.binary_cross_entropy_with_logits(s, y.to_dense())
+                        loss = F.binary_cross_entropy_with_logits(
+                            s, y.to_dense(), reduction="sum"
+                        )
 
                         # adding L2 regularization term for sparse entries (user/item)
                         loss += self.l2 * sum([
-                            torch.sum(w**2)**.5 for w in [vu, vi]
+                            torch.sum(w**2) for w in [vu]
                         ])
 
                         # backward
@@ -429,6 +432,11 @@ class FactorizationMachine2(nn.Module):
                             '[tloss={:.4f}]'.format(loss.item())
                         )
                         prog.update(1)
+
+                    prog.set_description(
+                        '[tloss={:.4f}]'.format(iter_loss / len(itr_usrs))
+                    )
+                    
         except KeyboardInterrupt as e:
             print('User stopped the training!...')
         finally:
