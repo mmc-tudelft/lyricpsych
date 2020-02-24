@@ -167,7 +167,8 @@ class FactorizationMachine(nn.Module):
 
         # do the optimization
         try:
-            for i in range(self.n_iters):
+            for n in range(self.n_iters):
+                iter_loss = 0
                 with tqdm(total=len(dl), desc=desc_tmp,
                         ncols=80, disable=not verbose) as prog:
                     for batch in dl:
@@ -197,7 +198,13 @@ class FactorizationMachine(nn.Module):
                         # update loss and counter
                         prog.set_description('[tloss={:.4f}]'.format(
                             loss.item()/batch_sz))
+                        iter_loss += loss.item()
                         prog.update(1)
+
+                    prog.set_description(
+                        '[tloss={:.4f}]'.format(iter_loss / n_users)
+                    )
+
         except KeyboardInterrupt as e:
             print('User stopped the training!...')
         finally:
@@ -369,9 +376,11 @@ class FactorizationMachine2(nn.Module):
                         u = rnd_usrs[u0:u0 + batch_sz]
                         
                         # retrieve interaction slice
-                        y = user_item[u]
+                        y = user_item[u].copy()
+                        c = y.copy()
                         y.data[:] = 1
                         y = scisp2tchsp(y.tocoo()).to(self.device)
+                        c = scisp2tchsp(c.tocoo()).to(self.device)
                         
                         # update item z
                         vu = self.embeddings_['user'](torch.LongTensor(u).to(self.device))
@@ -398,7 +407,8 @@ class FactorizationMachine2(nn.Module):
                         # compute the main loss
                         # TODO: generalize loss function
                         loss = F.binary_cross_entropy_with_logits(
-                            s, y.to_dense(), reduction="sum"
+                            s, y.to_dense(), reduction="sum", 
+                            weight=c.to_dense() * 10 + 1
                         )
 
                         # adding L2 regularization term for sparse entries (user/item)
