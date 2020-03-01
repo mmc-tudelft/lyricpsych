@@ -369,7 +369,7 @@ def slice_row_sparse(csr, i):
 def prepare_feature(feature_fn):
     """"""
     # for some pre-processors
-    pca = PCA()
+    pca = PCA(whiten=True)
     sclr = StandardScaler()
     
     # getting mxm->msd map
@@ -392,10 +392,25 @@ def prepare_feature(feature_fn):
             # fetch features per set
             x = hf['features'][feat][:]
             if feat == 'topic':
-                x = pca.fit_transform(x)
-            X.append(x)
+                x = pca.fit_transform(x) 
+            else:
+                if feat == 'audio':
+                    xsum = x.sum(1)
+                    non_zero_idx = np.where(xsum > 0)[0]
+                    zero_idx = np.where(xsum == 0)[0]
+                    sclr.fit(x[non_zero_idx])
+                    x = sclr.transform(x)
+                    x[zero_idx] = np.random.randn(len(zero_idx), x.shape[1])
+                else:
+                    x = sclr.fit_transform(x)
+                    
+            X.append(x) 
             bounds.append(bounds[-1] + x.shape[1])
-        feature = sclr.fit_transform(np.concatenate(X, axis=1)) 
+<<<<<<< HEAD
+        # feature = sclr.fit_transform(np.concatenate(X, axis=1)) 
+=======
+>>>>>>> 9039e61505a479166c6f5924f7aaaeab542506a2
+        feature = np.concatenate(X, axis=1)
         track2id = {
             mxm2msd[t]:i for i, t
             in enumerate(hf['features']['ids'][:])
