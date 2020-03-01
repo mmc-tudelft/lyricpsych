@@ -78,7 +78,12 @@ class FactorizationMachine(nn.Module):
             )
         
         for key, layer in self.embeddings_.items():
-            layer.weight.data.copy_(torch.randn(*layer.weight.shape) * self.init)
+            layer.weight.data[:,:-1].copy_(
+                torch.randn(*layer.weight[:,:-1].shape) * self.init
+            )
+            layer.weight.data[:,-1].copy_(
+                torch.zeros(*layer.weight[:,-1].shape)
+            )
         
     def _init_optimizer(self):
         """
@@ -145,16 +150,17 @@ class FactorizationMachine(nn.Module):
         self.cpu()  # since below process eats up lots of memory
 
         # update z
-        for entity, feat in features.items():
+        for entity in ['user', 'item']:
+        # for entity, feat in features.items():
             v = self.embeddings_[entity].weight.detach()
             k = 'feat_{}'.format(entity)
-            if k in self.embeddings_:
-                feat = feat.to('cpu')
+
+            if entity in features:
+            # if k in self.embeddings_:
+                feat = features[entity].to('cpu')
                 vf = self.embeddings_[k].weight.detach()
                 zf = feat @ vf
                 zf2 = feat**2 @ vf**2
-
-                # raise one blank dimension for batch dim
                 z = (v + zf)
                 z2 = (v**2 + zf2)
             else:
@@ -205,7 +211,7 @@ class FactorizationMachine(nn.Module):
         if self.training:
             # update item z
             vi = self.embeddings_['item'].weight
-
+            
             if 'feat_item' in self.embeddings_:
                 vfi = self.embeddings_['feat_item'].weight
                 zfi = X['item'] @ vfi
@@ -217,7 +223,7 @@ class FactorizationMachine(nn.Module):
                 zi, zi2 = vi[None], (vi**2)[None]
 
             if 'feat_user' in self.embeddings_:
-                vfu = self.embeddings_['feat_user'](u)
+                vfu = self.embeddings_['feat_user'].weight
                 zfu = X['user'][u] @ vfu
                 zfu2 = X['user'][u]**2 @ vfu**2
             
@@ -323,11 +329,11 @@ class FactorizationMachine(nn.Module):
         self._init_embeddings(user_item, user_feature, item_feature)
         if self.target_device != 'cpu':
             self.to(self.target_device)
-            if user_feature is not None:
-                feats['user'] = torch.Tensor(user_feature).to(self.device)
-
-            if item_feature is not None:
-                feats['item'] = torch.Tensor(item_feature).to(self.device)
+            
+        if user_feature is not None:
+            feats['user'] = torch.Tensor(user_feature).to(self.device)
+        if item_feature is not None:
+            feats['item'] = torch.Tensor(item_feature).to(self.device)
 
         # init optimizer
         self._init_optimizer()
@@ -482,11 +488,14 @@ class RecFeatDataset(Dataset):
     def _draw_data(self, u, user_item):
         i0, i1 = user_item.indptr[u], user_item.indptr[u+1]
         pos = user_item.indices[i0:i1]
-        j0 = np.random.choice(len(pos))
-        negs = negsamp_vectorized_bsearch(
-            pos, user_item.shape[1], n_samp=self.n_negs
-        )
-        return pos[j0][None], negs
+        if len(pos) == 0:
+            return None, None
+        else:
+            j0 = np.random.choice(len(pos))
+            negs = negsamp_vectorized_bsearch(
+                pos, user_item.shape[1], n_samp=self.n_negs
+            )
+            return pos[j0][None], negs
     
     def _preproc(self, u, pos, negs):
         """"""
@@ -500,6 +509,9 @@ class RecFeatDataset(Dataset):
     
     def __getitem__(self, u_idx):
         pos, negs = self._draw_data(u_idx, self.user_item)
+        if pos is None:
+            return None, None, None, None, None
+        
         u, i, y = self._preproc(u_idx, pos, negs)
         xi = torch.FloatTensor([-1])
         xu = torch.FloatTensor([-1])
@@ -512,7 +524,12 @@ class RecFeatDataset(Dataset):
 
 def collate_triplets_with_feature(samples):
     """"""
-    return tuple(map(torch.cat, zip(*samples)))
+    return tuple(
+        map(
+            torch.cat,
+            zip(*[s for s in samples if s[0] is not None])
+        )
+    )
 
 
 @nb.njit("i8[:](i4[:], i8, i8)")
@@ -548,12 +565,7 @@ def sparse_dense_mul(s, d):
 def compute_ndcg(s, y_ts, y_tr, topk=100):
     """"""
     tr = y_tr.indices
-    if len(tr) == 0:
-        return None
     s[tr] = -float("inf")
-    # s[tr] = -np.inf
-    # idx = np.argpartition(-s, kth=topk)[:topk]
-    # pred = idx[np.argsort(-s[idx])]
     pred = s.argsort(descending=True)[:topk].cpu().data.numpy()
     true = y_ts.indices
     return ndcg(true, pred, topk)
