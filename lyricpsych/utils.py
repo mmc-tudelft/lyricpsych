@@ -406,10 +406,6 @@ def prepare_feature(feature_fn):
                     
             X.append(x) 
             bounds.append(bounds[-1] + x.shape[1])
-<<<<<<< HEAD
-        # feature = sclr.fit_transform(np.concatenate(X, axis=1)) 
-=======
->>>>>>> 9039e61505a479166c6f5924f7aaaeab542506a2
         feature = np.concatenate(X, axis=1)
         track2id = {
             mxm2msd[t]:i for i, t
