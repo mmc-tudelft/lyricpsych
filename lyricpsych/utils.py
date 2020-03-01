@@ -395,7 +395,8 @@ def prepare_feature(feature_fn):
                 x = pca.fit_transform(x)
             X.append(x)
             bounds.append(bounds[-1] + x.shape[1])
-        feature = sclr.fit_transform(np.concatenate(X, axis=1)) 
+        # feature = sclr.fit_transform(np.concatenate(X, axis=1)) 
+        feature = np.concatenate(X, axis=1)
         track2id = {
             mxm2msd[t]:i for i, t
             in enumerate(hf['features']['ids'][:])
