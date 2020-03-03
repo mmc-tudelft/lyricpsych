@@ -30,6 +30,8 @@ class ALSFeat:
         self.dtype = dtype
         self.n_iters = n_iters
 
+        check_blas_config()
+
     def _init_embeddings(self):
         for key, param in self.embeddings_.items():
             self.embeddings_[key] = param.astype(self.dtype) * self.init
@@ -46,10 +48,17 @@ class ALSFeat:
         }
         self._init_embeddings()
 
-        # prepare data
+        # preprocess data
         user_item = user_item.copy().astype(self.dtype)
+        user_item.data = 1 + user_item.data * self.alpha
+
         item_user = user_item.T.tocsr()
         item_feat = item_feat.astype(self.dtype)
+
+        # scale hyper-parameters
+        Csum = item_user.sum
+        lmbda = self.lmbda * (item_user.sum() / n_items * n_feats)
+        l2 = self.l2 * (item_user.sum())
 
         dsc_tmp = '[vacc={:.4f}]'
         with tqdm(total=self.n_iters, desc='[vacc=0.0000]',
@@ -60,7 +69,7 @@ class ALSFeat:
                 update_user_factor(
                     user_item.data, user_item.indices, user_item.indptr,
                     self.embeddings_['user'], self.embeddings_['item'],
-                    self.l2, self.alpha, self.eps
+                    l2, self.alpha, self.eps
                 )
 
                 # update item factors
@@ -68,24 +77,22 @@ class ALSFeat:
                     item_user.data, item_user.indices, item_user.indptr,
                     self.embeddings_['user'], self.embeddings_['item'],
                     item_feat, self.embeddings_['feat'],
-                    self.lmbda, self.l2, self.alpha, self.eps
+                    lmbda, l2, self.alpha, self.eps
                 )
 
                 # update feat factors
                 update_feat_factor(
                     self.embeddings_['item'], item_feat,
-                    self.embeddings_['feat'], self.lmbda, self.l2
+                    self.embeddings_['feat'], lmbda, l2
                 )
 
                 if valid_user_item is not None:
-                    score = self.validate_inmat(
-                        user_item, item_feat, valid_user_item 
-                    )
+                    score = self.validate(user_item, item_feat, valid_user_item)
                     p.set_description(dsc_tmp.format(score))
                 p.update(1)
 
-    def validate_inmat(self, user_item, item_feat, valid_user_item,
-                       n_tests=2000, topk=100):
+    def validate(self, user_item, item_feat, valid_user_item,
+                 n_tests=2000, topk=100):
         """"""
         scores = []
         for u in np.random.choice(user_item.shape[0], n_tests, False):
@@ -100,11 +107,6 @@ class ALSFeat:
             scores.append(ndcg(true, pred, topk))
         return np.mean(scores)
 
-    def validate_outmat(self, out_item_feat, out_user_item,
-                        n_tests=2000, topk=100):
-        """"""
-        pass
-
 
 @nb.njit(nogil=True, parallel=True)
 def update_user_factor(data, indices, indptr, U, V, lmbda, alpha, eps):
@@ -118,9 +120,7 @@ def update_user_factor(data, indices, indptr, U, V, lmbda, alpha, eps):
         u = rnd_idx[n]
         u0, u1 = indptr[u], indptr[u + 1]
         ind = indices[u0:u1]
-        dat = data[u0:u1]
-        # c = 1 + np.log(dat/eps + 1)
-        c = 1 + alpha * dat
+        c = data[u0:u1]
         vv = V[ind]
 
         b = np.dot(c, V[ind])
@@ -144,9 +144,7 @@ def update_item_factor(data, indices, indptr, U, V, X, W, lmbda_x, lmbda, alpha,
             continue
 
         ind = indices[i0:i1]
-        dat = data[i0:i1]
-        # c = 1. + np.log(dat/eps + 1)
-        c = 1 + alpha * dat
+        c = data[i0:i1]
         xw = XW[i].copy()
         uu = U[ind].copy()
         
