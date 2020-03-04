@@ -15,18 +15,18 @@ class ALSFeat:
                  alpha=5, eps=0.5, dtype='float32'):
 
         if dtype == 'float32':
-            f_dtype = np.float32
+            self.f_dtype = np.float32
         elif dtype == 'float64':
-            f_dtype = np.float64
+            self.f_dtype = np.float64
         else:
             raise ValueError('Only float32/float64 are supported!')
         
         self.k = k
-        self.init = f_dtype(init)
-        self.lmbda = f_dtype(lmbda)
-        self.l2 = f_dtype(l2)
-        self.alpha = f_dtype(alpha)
-        self.eps = f_dtype(eps)
+        self.init = self.f_dtype(init)
+        self.lmbda = self.f_dtype(lmbda)
+        self.l2 = self.f_dtype(l2)
+        self.alpha = self.f_dtype(alpha)
+        self.eps = self.f_dtype(eps)
         self.dtype = dtype
         self.n_iters = n_iters
 
@@ -50,15 +50,16 @@ class ALSFeat:
 
         # preprocess data
         user_item = user_item.copy().astype(self.dtype)
-        user_item.data = 1 + user_item.data * self.alpha
+        user_item.data = self.f_dtype(1) + user_item.data * self.alpha
 
         item_user = user_item.T.tocsr()
         item_feat = item_feat.astype(self.dtype)
 
         # scale hyper-parameters
-        Csum = item_user.sum
-        lmbda = self.lmbda * (item_user.sum() / n_items * n_feats)
-        l2 = self.l2 * (item_user.sum())
+        # lmbda = self.lmbda * (item_user.sum() / n_items * n_feats)
+        # l2 = self.l2 * (item_user.sum())
+        lmbda = self.lmbda
+        l2 = self.l2
 
         dsc_tmp = '[vacc={:.4f}]'
         with tqdm(total=self.n_iters, desc='[vacc=0.0000]',
@@ -116,11 +117,12 @@ def update_user_factor(data, indices, indptr, U, V, lmbda, alpha, eps):
     I = np.eye(d, dtype=VV.dtype)
     rnd_idx = np.random.permutation(U.shape[0])
     
+    # for n in range(U.shape[0]):
     for n in nb.prange(U.shape[0]):
         u = rnd_idx[n]
         u0, u1 = indptr[u], indptr[u + 1]
         ind = indices[u0:u1]
-        c = data[u0:u1]
+        c = data[u0:u1] + 0
         vv = V[ind]
 
         b = np.dot(c, V[ind])
@@ -138,13 +140,14 @@ def update_item_factor(data, indices, indptr, U, V, X, W, lmbda_x, lmbda, alpha,
     rnd_idx = np.random.permutation(V.shape[0])
     
     for n in nb.prange(V.shape[0]):
+    # for n in range(V.shape[0]):
         i = rnd_idx[n]
         i0, i1 = indptr[i], indptr[i+1]
         if i1 - i0 == 0:
             continue
 
         ind = indices[i0:i1]
-        c = data[i0:i1]
+        c = data[i0:i1] + 0
         xw = XW[i].copy()
         uu = U[ind].copy()
         
