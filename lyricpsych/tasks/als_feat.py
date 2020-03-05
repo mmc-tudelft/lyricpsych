@@ -10,6 +10,89 @@ from tqdm import tqdm
 from ..metrics import ndcg
 
 
+class ALS:
+    def __init__(self, k, init=0.001, l2=0.0001, n_iters=15,
+                 alpha=5, eps=0.5, dtype='float32'):
+
+        if dtype == 'float32':
+            self.f_dtype = np.float32
+        elif dtype == 'float64':
+            self.f_dtype = np.float64
+        else:
+            raise ValueError('Only float32/float64 are supported!')
+        
+        self.k = k
+        self.init = self.f_dtype(init)
+        self.l2 = self.f_dtype(l2)
+        self.alpha = self.f_dtype(alpha)
+        self.eps = self.f_dtype(eps)
+        self.dtype = dtype
+        self.n_iters = n_iters
+
+        check_blas_config()
+
+    def _init_embeddings(self):
+        for key, param in self.embeddings_.items():
+            self.embeddings_[key] = param.astype(self.dtype) * self.init
+    
+    def fit(self, user_item, item_feat, valid_user_item=None,
+            out_mat_val=True, verbose=False):
+        """"""
+        n_users, n_items = user_item.shape
+        n_feats = item_feat.shape[1]
+        self.embeddings_ = {
+            'user': np.random.randn(n_users, self.k),
+            'item': np.random.randn(n_items, self.k),
+        }
+        self._init_embeddings()
+
+        # preprocess data
+        user_item = user_item.copy().astype(self.dtype)
+        user_item.data = self.f_dtype(1) + user_item.data * self.alpha
+        item_user = user_item.T.tocsr()
+
+        dsc_tmp = '[vacc={:.4f}]'
+        with tqdm(total=self.n_iters, desc='[vacc=0.0000]',
+                  disable=not verbose, ncols=80) as p:
+
+            for n in range(self.n_iters):
+                # update user factors
+                update_user_factor(
+                    user_item.data, user_item.indices, user_item.indptr,
+                    self.embeddings_['user'], self.embeddings_['item'], self.l2
+                )
+                
+                # update item factors
+                update_user_factor(
+                    item_user.data, item_user.indices, item_user.indptr,
+                    self.embeddings_['item'], self.embeddings_['user'], self.l2
+                )
+
+                if valid_user_item is not None:
+                    score = self.validate(user_item, valid_user_item)
+                    p.set_description(dsc_tmp.format(score))
+                p.update(1)
+
+    def validate(self, user_item, valid_user_item, n_tests=2000, topk=100):
+        """"""
+        scores = []
+        if n_tests >= user_item.shape[0]:
+            targets = range(user_item.shape[0])
+        else:
+            targets = np.random.choice(user_item.shape[0], n_tests, False)
+        for u in targets:
+            true = valid_user_item[u].indices
+            if len(true) == 0:
+                continue
+            train = user_item[u].indices
+            s = self.embeddings_['user'][u] @ self.embeddings_['item'].T
+            s[train] = -np.inf
+            idx = np.argpartition(-s, kth=topk)[:topk]
+            pred = idx[np.argsort(-s[idx])]
+            scores.append(ndcg(true, pred, topk))
+        return np.mean(scores)
+
+
 class ALSFeat:
     def __init__(self, k, init=0.001, lmbda=1, l2=0.0001, n_iters=15,
                  alpha=5, eps=0.5, dtype='float32'):
@@ -54,10 +137,11 @@ class ALSFeat:
 
         item_user = user_item.T.tocsr()
         item_feat = item_feat.astype(self.dtype)
+        
+        # pre-compute XX
+        item_feat2 = item_feat.T @ item_feat
 
         # scale hyper-parameters
-        # lmbda = self.lmbda * (item_user.sum() / n_items * n_feats)
-        # l2 = self.l2 * (item_user.sum())
         lmbda = self.lmbda
         l2 = self.l2
 
@@ -81,7 +165,7 @@ class ALSFeat:
 
                 # update feat factors
                 update_feat_factor(
-                    self.embeddings_['item'], item_feat,
+                    self.embeddings_['item'], item_feat, item_feat2,
                     self.embeddings_['feat'], lmbda, l2
                 )
 
@@ -129,7 +213,7 @@ def update_user_factor(data, indices, indptr, U, V, lmbda):
             continue
         ind = indices[u0:u1]
         val = data[u0:u1]
-        U[u] = partial_ALS(val, ind, U, V, VV, lmbda)
+        U[u] = partial_ALS(val, ind, V, VV, lmbda)
 
         
 # @nb.njit
@@ -151,18 +235,18 @@ def update_item_factor(data, indices, indptr, U, V, X, W, lmbda_x, lmbda):
             continue
         ind = indices[i0:i1]
         val = data[i0:i1]
-        V[i] = partial_ALS_feat(val, ind, U, UU, V, X[i], W, lmbda_x, lmbda)
+        V[i] = partial_ALS_feat(val, ind, U, UU, X[i], W, lmbda_x, lmbda)
 
         
 @nb.njit
-def update_feat_factor(V, X, W, lmbda_x, lmbda):
+def update_feat_factor(V, X, XX, W, lmbda_x, lmbda):
     h = X.shape[1]
     I = np.eye(h, dtype=V.dtype)
     # d = V.shape[1]
     # A = np.zeros((h, h))
     # B = np.zeros((h, d))
     
-    A = X.T @ X + (lmbda / lmbda_x) * I
+    A = XX + (lmbda / lmbda_x) * I
     # for f in range(h):
     #     for q in range(f, h):
     #         if f == q:
@@ -182,7 +266,7 @@ def update_feat_factor(V, X, W, lmbda_x, lmbda):
 
 
 @nb.njit
-def partial_ALS(data, indices, U, V, VV, lmbda):
+def partial_ALS(data, indices, V, VV, lmbda):
     d = V.shape[1]
     b = np.zeros((d,))
     A = np.zeros((d, d))
@@ -213,8 +297,8 @@ def partial_ALS(data, indices, U, V, VV, lmbda):
     return np.linalg.solve(A, b.ravel())
     
 @nb.njit
-def partial_ALS_feat(data, indices, U, UU, V, x, W, lmbda_x, lmbda):
-    d = V.shape[1]
+def partial_ALS_feat(data, indices, U, UU, x, W, lmbda_x, lmbda):
+    d = U.shape[1]
     b = np.zeros((d,))
     A = np.zeros((d, d))
     xw = np.zeros((d,))
