@@ -399,7 +399,7 @@ def prepare_feature(feature_fn):
                     non_zero_idx = np.where(xsum > 0)[0]
                     zero_idx = np.where(xsum == 0)[0]
                     sclr.fit(x[non_zero_idx])
-                    x = sclr.transform(x)
+                    x[non_zero_idx] = sclr.transform(x[non_zero_idx])
                     x[zero_idx] = np.random.randn(len(zero_idx), x.shape[1])
                 else:
                     x = sclr.fit_transform(x)

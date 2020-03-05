@@ -35,11 +35,9 @@ class ALS:
         for key, param in self.embeddings_.items():
             self.embeddings_[key] = param.astype(self.dtype) * self.init
     
-    def fit(self, user_item, item_feat, valid_user_item=None,
-            out_mat_val=True, verbose=False):
+    def fit(self, user_item, valid_user_item=None, verbose=False):
         """"""
         n_users, n_items = user_item.shape
-        n_feats = item_feat.shape[1]
         self.embeddings_ = {
             'user': np.random.randn(n_users, self.k),
             'item': np.random.randn(n_items, self.k),
@@ -120,7 +118,7 @@ class ALSFeat:
             self.embeddings_[key] = param.astype(self.dtype) * self.init
     
     def fit(self, user_item, item_feat, valid_user_item=None,
-            out_mat_val=True, verbose=False):
+            verbose=False):
         """"""
         n_users, n_items = user_item.shape
         n_feats = item_feat.shape[1]
