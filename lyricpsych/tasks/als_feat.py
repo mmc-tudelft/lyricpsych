@@ -93,7 +93,7 @@ class ALS:
 
 class ALSFeat:
     def __init__(self, k, init=0.001, lmbda=1, l2=0.0001, n_iters=15,
-                 alpha=5, eps=0.5, dtype='float32'):
+                 alpha=5, eps=0.5, dropout=0.5, dtype='float32'):
 
         if dtype == 'float32':
             self.f_dtype = np.float32
@@ -110,12 +110,26 @@ class ALSFeat:
         self.eps = self.f_dtype(eps)
         self.dtype = dtype
         self.n_iters = n_iters
+        self.dropout = dropout
 
         check_blas_config()
 
     def _init_embeddings(self):
         for key, param in self.embeddings_.items():
             self.embeddings_[key] = param.astype(self.dtype) * self.init
+    
+    def dropout_items(self, item_user):
+        """"""
+        if self.dropout > 0:
+            n_items = item_user.shape[0]
+            dropout_items = np.random.choice(
+                n_items, int(n_items * self.dropout), False
+            )
+            for i in dropout_items:
+                i0, i1 = item_user.indptr[i], item_user.indptr[i+1]
+                item_user.data[i0:i1] = 0
+            item_user.eliminate_zeros()                
+        return item_user
     
     def fit(self, user_item, item_feat, valid_user_item=None,
             verbose=False):
@@ -148,15 +162,18 @@ class ALSFeat:
                   disable=not verbose, ncols=80) as p:
 
             for n in range(self.n_iters):
+                IU = self.dropout_items(item_user.copy())
+                UI = IU.T.tocsr()
+                
                 # update user factors
                 update_user_factor(
-                    user_item.data, user_item.indices, user_item.indptr,
+                    UI.data, UI.indices, UI.indptr,
                     self.embeddings_['user'], self.embeddings_['item'], l2
                 )
 
                 # update item factors
                 update_item_factor(
-                    item_user.data, item_user.indices, item_user.indptr,
+                    IU.data, IU.indices, IU.indptr,
                     self.embeddings_['user'], self.embeddings_['item'],
                     item_feat, self.embeddings_['feat'], lmbda, l2
                 )
@@ -229,8 +246,8 @@ def update_item_factor(data, indices, indptr, U, V, X, W, lmbda_x, lmbda):
     # for n in range(V.shape[0]):
         i = rnd_idx[n]
         i0, i1 = indptr[i], indptr[i+1]
-        if i1 - i0 == 0:
-            continue
+        # if i1 - i0 == 0:
+        #     continue
         ind = indices[i0:i1]
         val = data[i0:i1]
         V[i] = partial_ALS_feat(val, ind, U, UU, X[i], W, lmbda_x, lmbda)
@@ -269,7 +286,7 @@ def partial_ALS(data, indices, V, VV, lmbda):
     b = np.zeros((d,))
     A = np.zeros((d, d))
     c = data + 0
-    vv = V[indices]
+    vv = V[indices].copy()
 
     # b = np.dot(c, V[ind])
     for f in range(d):
@@ -301,7 +318,7 @@ def partial_ALS_feat(data, indices, U, UU, x, W, lmbda_x, lmbda):
     A = np.zeros((d, d))
     xw = np.zeros((d,))
     c = data + 0
-    uu = U[indices]
+    uu = U[indices].copy()
 
     # xw = x @ W
     for f in range(d):

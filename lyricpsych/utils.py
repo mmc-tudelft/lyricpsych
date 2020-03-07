@@ -327,6 +327,9 @@ def split_recsys_data(X, train_ratio=0.8, valid_ratio=0.1):
         scipy.sparse.csr_matrix: testing matrix
     """
     def _store_data(cur_i, container, indices, data, rnd_idx, start, end):
+        n_records = end - start
+        if n_records == 0:
+            return
         container['I'].extend(np.full((end - start,), cur_i).tolist())
         container['J'].extend(indices[rnd_idx[start:end]].tolist())
         container['V'].extend(data[rnd_idx[start:end]].tolist())
