@@ -19,7 +19,9 @@ from tqdm import tqdm
 # TODO: make decorator for checking the model is already fitted
 class FactorizationMachine(nn.Module):
     def __init__(self, k, init=0.001, n_iters=10, learn_rate=0.001, l2=0.0001,
-                 n_negs=10, use_gpu=False, loss='sgns', loss_agg="sum", alpha=None):
+                 n_negs=10, use_gpu=False, loss='sgns', loss_agg="sum",
+                 alpha=None, no_item_factor=False):
+        """"""
         super().__init__()
         self.k = k
         self.init = init
@@ -29,6 +31,7 @@ class FactorizationMachine(nn.Module):
         self.n_negs = n_negs
         # TODO: generalization of the device selection (not only for cuda)
         self.target_device = 'cuda' if use_gpu else 'cpu'
+        self.no_item_factor = no_item_factor
 
         # setup the loss
         if loss not in {'sgns', 'bpr', 'bce', 'kl'}:
@@ -78,12 +81,12 @@ class FactorizationMachine(nn.Module):
             )
         
         for key, layer in self.embeddings_.items():
-            layer.weight.data[:,:-1].copy_(
-                torch.randn(*layer.weight[:,:-1].shape) * self.init
-            )
-            layer.weight.data[:,-1].copy_(
-                torch.zeros(*layer.weight[:,-1].shape)
-            )
+            if self.no_item_factor and key == 'item':
+                layer.weight.data.zero_()
+                layer.weight.requires_grad = False
+            else:
+                layer.weight.data[:,:-1].normal_(std=self.init)
+                layer.weight.data[:,-1].zero_()
         
     def _init_optimizer(self):
         """
