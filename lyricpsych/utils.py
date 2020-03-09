@@ -327,6 +327,9 @@ def split_recsys_data(X, train_ratio=0.8, valid_ratio=0.1):
         scipy.sparse.csr_matrix: testing matrix
     """
     def _store_data(cur_i, container, indices, data, rnd_idx, start, end):
+        n_records = end - start
+        if n_records == 0:
+            return
         container['I'].extend(np.full((end - start,), cur_i).tolist())
         container['J'].extend(indices[rnd_idx[start:end]].tolist())
         container['V'].extend(data[rnd_idx[start:end]].tolist())
@@ -366,6 +369,42 @@ def slice_row_sparse(csr, i):
     return csr.indices[slc], csr.data[slc]
 
 
+def argpart_sort(s, k, ascending=True):
+    if ascending: p = s
+    else:         p = -s
+    idx = np.argpartition(p, kth=k)[:k]
+    return idx[np.argsort(p[idx])]
+
+
+def densify(ui_csr, users, items, item_feat=None, thresh=5, user_sample=0.3):
+    """ Densify the User-Item interactio matrix
+    """
+    def _filt_entity(csr, entities, thresh):
+        filt_targs = np.where(np.ediff1d(csr.indptr) >= thresh)[0]
+        return csr[filt_targs], entities[filt_targs], filt_targs
+
+    n_users, n_items = ui_csr.shape
+    users = np.asarray(users)
+    items = np.asarray(items)
+    
+    if user_sample > 0:
+        assert user_sample < 1
+        p = user_sample
+        uid = np.random.choice(n_users, int(n_users * p), False)
+        ui_csr = ui_csr[uid]
+        users = users[uid]
+    
+    diff = 1
+    while diff > 0:
+        prev_nnz = ui_csr.nnz
+        iu_csr, items, filt_idx = _filt_entity(ui_csr.T.tocsr(), items, thresh)
+        if item_feat is not None:
+            item_feat = item_feat[filt_idx]
+        ui_csr, users, filt_idx = _filt_entity(iu_csr.T.tocsr(), users, thresh)
+        diff = prev_nnz - ui_csr.nnz
+    return ui_csr, users, items, item_feat
+
+
 def prepare_feature(feature_fn):
     """"""
     # for some pre-processors
@@ -399,7 +438,7 @@ def prepare_feature(feature_fn):
                     non_zero_idx = np.where(xsum > 0)[0]
                     zero_idx = np.where(xsum == 0)[0]
                     sclr.fit(x[non_zero_idx])
-                    x = sclr.transform(x)
+                    x[non_zero_idx] = sclr.transform(x[non_zero_idx])
                     x[zero_idx] = np.random.randn(len(zero_idx), x.shape[1])
                 else:
                     x = sclr.fit_transform(x)
@@ -417,7 +456,7 @@ def prepare_feature(feature_fn):
     for i, feat in enumerate(feature_sets):
         features[feat] = feature[:, bounds[i]:bounds[i+1]]  
     
-    return features, track2id, pca, sclr
+    return features, track2id, pca, sclr, feature_sets
 
 
 def get_all_comb(cases, include_null=False):
@@ -427,4 +466,4 @@ def get_all_comb(cases, include_null=False):
     ]
     if include_null:
         combs.append(None)
-    return combs 
+    return combs
