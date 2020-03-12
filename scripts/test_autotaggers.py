@@ -2,7 +2,7 @@ import os
 os.environ['LIWC_PATH'] = "data/LIWC.json"
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['MKL_NUM_THREADS'] = '1'
-os.environ['NUMBA_NUM_THREADS'] = '6'
+os.environ['NUMBA_NUM_THREADS'] = '4'
 
 from os.path import join, dirname
 import sys
@@ -56,6 +56,13 @@ def build_sparse_seed_mat(seeds, n_songs, n_tags):
         shape=(n_songs, n_tags)
     )
     return seeds_mat
+
+
+def split_test_cases(label, seeds):
+    """"""
+    cont = {0:[], 1:[], 2:[], 5:[], 10:[]}
+    n_tags = label.sum(1)
+
 
 
 def split_data(test_fold, feat, label, folds, seeds, n_seeds=0, scale=False):
@@ -144,6 +151,8 @@ def evaluate(model, feats, seeds, labels, n_seeds=0, topk={1, 5, 10, 20}):
             continue
         if seeds is not None:
             seed_ind, seed_val = slice_row_sparse(seeds, i)
+            if len(seed_ind) == 0:
+                continue
         else:
             seed_ind, seed_val = np.array([]), np.array([])
 
@@ -156,7 +165,7 @@ def evaluate(model, feats, seeds, labels, n_seeds=0, topk={1, 5, 10, 20}):
         for k in topk:
             scores[k].append(ndcg(true, pred, k))
 
-    ndcg_res = {k:np.mean(score) for k, score in scores.items()}
+    ndcg_res = {k:(np.mean(score), len(score)) for k, score in scores.items()}
 
     return auc_res, ndcg_res
 
@@ -189,7 +198,7 @@ def find_best(model, k, space, feats, seeds, labels):
 
 
 if __name__ == "__main__":
-    data_root = '/Users/jaykim/Downloads/datasets/msd/msd_subset_top1000/splits/'
+    data_root = '/home/jaykim/Downloads/datasets/msd/msd_subset_top1000/splits/'
     eval_target = 'test'
     fold = 0
     n_seeds = 1
@@ -200,22 +209,22 @@ if __name__ == "__main__":
     scale = False
 
     labels, feats, folds, seeds = load_data(data_root)
-    feats, seeds, labels = split_data(fold, feats, labels, folds, seeds, n_seeds)
+    # feats, seeds, labels = split_data(fold, feats, labels, folds, seeds, n_seeds)
 
-    if scale:
-        # scale data
-        sclr = StandardScaler()
-        feats['train'] = sclr.fit_transform(feats['train'])
-        feats['valid'] = sclr.transform(feats['valid'])
-        feats['test'] = sclr.transform(feats['test'])
+    # if scale:
+    #     # scale data
+    #     sclr = StandardScaler()
+    #     feats['train'] = sclr.fit_transform(feats['train'])
+    #     feats['valid'] = sclr.transform(feats['valid'])
+    #     feats['test'] = sclr.transform(feats['test'])
 
-    als = ALSFeat(32, alpha=5, l2=1e-7, lmbda=1e+10, n_iters=15, dropout=0)
-    als.fit(labels['train'].T.tocsr(), feats['train'], verbose=True)
-    if n_seeds == 0:
-        results = evaluate(als, feats['valid'], None, labels['valid'], n_seeds)
-    else:
-        results = evaluate(als, feats['valid'], seeds['valid'], labels['valid'], n_seeds)
-    print(results)
+    # als = ALSFeat(32, alpha=5, l2=1e-7, lmbda=1, n_iters=15, dropout=0)
+    # als.fit(labels['train'].T.tocsr(), feats['train'], verbose=True)
+    # if n_seeds == 0:
+    #     results = evaluate(als, feats['valid'], None, labels['valid'], n_seeds)
+    # else:
+    #     results = evaluate(als, feats['valid'], seeds['valid'], labels['valid'], n_seeds)
+    # print(results)
 
     # The list of hyper-parameters we want to optimize. For each one we define the
     # bounds, the corresponding scikit-learn parameter name, as well as how to

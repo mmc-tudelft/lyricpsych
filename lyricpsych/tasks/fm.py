@@ -20,7 +20,7 @@ from tqdm import tqdm
 class FactorizationMachine(nn.Module):
     def __init__(self, k, init=0.001, n_iters=10, learn_rate=0.001, l2=0.0001,
                  n_negs=10, use_gpu=False, loss='sgns', loss_agg="sum",
-                 alpha=None, no_item_factor=False):
+                 alpha=None, no_item_factor=False, warm_start=False):
         """"""
         super().__init__()
         self.k = k
@@ -32,6 +32,7 @@ class FactorizationMachine(nn.Module):
         # TODO: generalization of the device selection (not only for cuda)
         self.target_device = 'cuda' if use_gpu else 'cpu'
         self.no_item_factor = no_item_factor
+        self.warm_start = warm_start
 
         # setup the loss
         if loss not in {'sgns', 'bpr', 'bce', 'kl'}:
@@ -320,8 +321,9 @@ class FactorizationMachine(nn.Module):
         return l
 
     def fit(self, user_item, user_feature=None, item_feature=None,
-            valid_user_item=None, feature_sparse=False,
-            batch_sz=512, n_tests=1000, topk=100, verbose=False, n_jobs=4):
+            valid_user_item=None, feature_sparse=False, batch_sz=512,
+            n_tests=1000, topk=100, valid_callback=None, verbose=False,
+            n_jobs=4):
         """"""
         # set some variables
         feats = {}
@@ -329,7 +331,9 @@ class FactorizationMachine(nn.Module):
         n_users, n_items = user_item.shape
         desc_tmp = '[tloss=0.0000]'
 
-        self._init_embeddings(user_item, user_feature, item_feature)
+        if not self.warm_start:
+            self._init_embeddings(user_item, user_feature, item_feature)
+            
         if self.target_device != 'cpu':
             self.to(self.target_device)
             
@@ -409,9 +413,9 @@ class FactorizationMachine(nn.Module):
                         elapsed = now - val_timer
                         if do_valid and (elapsed.total_seconds() > 60):
                             val_timer = now
-                            scores = self._validate(
+                            scores = self.validate(
                                 user_item, valid_user_item, feats,
-                                n_tests, topk
+                                n_tests, topk, valid_callback
                             )
                             val_score = np.mean(scores)
                         prog.set_description(
@@ -421,9 +425,9 @@ class FactorizationMachine(nn.Module):
                         prog.update(1)
 
                     if do_valid:
-                        scores = self._validate(
+                        scores = self.validate(
                             user_item, valid_user_item, feats,
-                            n_tests, topk
+                            n_tests, topk, valid_callback
                         )
                         val_score = np.mean(scores)
                     prog.set_description(
@@ -436,6 +440,22 @@ class FactorizationMachine(nn.Module):
         finally:
             # update the cached factors for faster inference
             self._update_z(feats)
+            
+    def validate(self, user_item, valid_user_item, feats, n_tests, topk,
+                 callback=None):
+        """"""
+        if callback is None:
+            scores = self._validate(
+                user_item, valid_user_item, feats,
+                n_tests, topk
+            )
+        else:
+            scores = callback(
+                self, user_item, valid_user_item, feats,
+                n_tests, topk
+            )
+        return scores
+
     
     def _validate(self, user_item, valid_user_item, feats,
                   n_tests, topk):
