@@ -20,7 +20,7 @@ class ALS:
             self.f_dtype = np.float64
         else:
             raise ValueError('Only float32/float64 are supported!')
-        
+
         self.k = k
         self.init = self.f_dtype(init)
         self.l2 = self.f_dtype(l2)
@@ -34,7 +34,7 @@ class ALS:
     def _init_embeddings(self):
         for key, param in self.embeddings_.items():
             self.embeddings_[key] = param.astype(self.dtype) * self.init
-    
+
     def fit(self, user_item, valid_user_item=None, verbose=False):
         """"""
         n_users, n_items = user_item.shape
@@ -59,7 +59,7 @@ class ALS:
                     user_item.data, user_item.indices, user_item.indptr,
                     self.embeddings_['user'], self.embeddings_['item'], self.l2
                 )
-                
+
                 # update item factors
                 update_user_factor(
                     item_user.data, item_user.indices, item_user.indptr,
@@ -101,7 +101,7 @@ class ALSFeat:
             self.f_dtype = np.float64
         else:
             raise ValueError('Only float32/float64 are supported!')
-        
+
         self.k = k
         self.init = self.f_dtype(init)
         self.lmbda = self.f_dtype(lmbda)
@@ -117,7 +117,7 @@ class ALSFeat:
     def _init_embeddings(self):
         for key, param in self.embeddings_.items():
             self.embeddings_[key] = param.astype(self.dtype) * self.init
-    
+
     def dropout_items(self, item_user):
         """"""
         if self.dropout > 0:
@@ -128,9 +128,9 @@ class ALSFeat:
             for i in dropout_items:
                 i0, i1 = item_user.indptr[i], item_user.indptr[i+1]
                 item_user.data[i0:i1] = 0
-            item_user.eliminate_zeros()                
+            item_user.eliminate_zeros()
         return item_user
-    
+
     def fit(self, user_item, item_feat, valid_user_item=None,
             verbose=False):
         """"""
@@ -149,7 +149,7 @@ class ALSFeat:
 
         item_user = user_item.T.tocsr()
         item_feat = item_feat.astype(self.dtype)
-        
+
         # pre-compute XX
         item_feat2 = item_feat.T @ item_feat
 
@@ -164,7 +164,7 @@ class ALSFeat:
             for n in range(self.n_iters):
                 IU = self.dropout_items(item_user.copy())
                 UI = IU.T.tocsr()
-                
+
                 # update user factors
                 update_user_factor(
                     UI.data, UI.indices, UI.indptr,
@@ -219,7 +219,7 @@ def update_user_factor(data, indices, indptr, U, V, lmbda):
     I = np.eye(d, dtype=VV.dtype)
     # randomize the order so that scheduling is more efficient
     rnd_idx = np.random.permutation(U.shape[0])
-    
+
     # for n in range(U.shape[0]):
     for n in nb.prange(U.shape[0]):
         u = rnd_idx[n]
@@ -230,7 +230,7 @@ def update_user_factor(data, indices, indptr, U, V, lmbda):
         val = data[u0:u1]
         U[u] = partial_ALS(val, ind, V, VV, lmbda)
 
-        
+
 # @nb.njit
 @nb.njit(nogil=True, parallel=True)
 def update_item_factor(data, indices, indptr, U, V, X, W, lmbda_x, lmbda):
@@ -241,7 +241,7 @@ def update_item_factor(data, indices, indptr, U, V, X, W, lmbda_x, lmbda):
     I = np.eye(d, dtype=UU.dtype)
     # randomize the order so that scheduling is more efficient
     rnd_idx = np.random.permutation(V.shape[0])
-    
+
     for n in nb.prange(V.shape[0]):
     # for n in range(V.shape[0]):
         i = rnd_idx[n]
@@ -252,7 +252,7 @@ def update_item_factor(data, indices, indptr, U, V, X, W, lmbda_x, lmbda):
         val = data[i0:i1]
         V[i] = partial_ALS_feat(val, ind, U, UU, X[i], W, lmbda_x, lmbda)
 
-        
+
 @nb.njit
 def update_feat_factor(V, X, XX, W, lmbda_x, lmbda):
     h = X.shape[1]
@@ -260,7 +260,7 @@ def update_feat_factor(V, X, XX, W, lmbda_x, lmbda):
     # d = V.shape[1]
     # A = np.zeros((h, h))
     # B = np.zeros((h, d))
-    
+
     A = XX + (lmbda / lmbda_x) * I
     # for f in range(h):
     #     for q in range(f, h):
@@ -269,13 +269,13 @@ def update_feat_factor(V, X, XX, W, lmbda_x, lmbda):
     #         for j in range(X.shape[0]):
     #             A[f, q] += X[j, f] * X[j, q]
     # A = A + A.T - np.diag(A)
-    
+
     B = X.T @ V
     # for f in range(h):
     #     for r in range(d):
     #         for j in range(X.shape[0]):
     #             B[f, r] += X[j, f] * V[j, r]
-    
+
     # update feature factors
     W = np.linalg.solve(A, B)
 
@@ -287,12 +287,13 @@ def partial_ALS(data, indices, V, VV, lmbda):
     A = np.zeros((d, d))
     c = data + 0
     vv = V[indices].copy()
+    # I = np.eye(d, dtype=VV.dtype)
 
-    # b = np.dot(c, V[ind])
+    # b = np.dot(c, vv)
     for f in range(d):
         for j in range(len(c)):
             b[f] += c[j] * vv[j, f]
-    
+
     # A = VV + vv.T @ np.diag(c - 1) @ vv + lmbda * I
     for f in range(d):
         for q in range(f, d):
@@ -301,16 +302,17 @@ def partial_ALS(data, indices, V, VV, lmbda):
             A[f, q] += VV[f, q]
             for j in range(len(c)):
                 A[f, q] += vv[j, f] * (c[j] - 1) * vv[j, q]
-                
+
     # copy the triu elements to the tril
     # A = A + A.T - np.diag(np.diag(A))
-    for j in range(1, d):
-        for k in range(j, d):
+    for j in range(d):
+        for k in range(j+1, d):
             A[k][j] = A[j][k]
-    
+
     # update user factor
     return np.linalg.solve(A, b.ravel())
-    
+
+
 @nb.njit
 def partial_ALS_feat(data, indices, U, UU, x, W, lmbda_x, lmbda):
     d = U.shape[1]
@@ -319,6 +321,7 @@ def partial_ALS_feat(data, indices, U, UU, x, W, lmbda_x, lmbda):
     xw = np.zeros((d,))
     c = data + 0
     uu = U[indices].copy()
+    # I = np.eye(d, dtype=UU.dtype)
 
     # xw = x @ W
     for f in range(d):
@@ -329,7 +332,7 @@ def partial_ALS_feat(data, indices, U, UU, x, W, lmbda_x, lmbda):
     for f in range(d):
         b[f] += lmbda_x * xw[f]
         for j in range(len(c)):
-            b[f] += c[j] * uu[j, f] 
+            b[f] += c[j] * uu[j, f]
 
     # A = UU + uu.T @ np.diag(c - 1) @ uu + (lmbda_x + lmbda) * I
     for f in range(d):
@@ -342,8 +345,8 @@ def partial_ALS_feat(data, indices, U, UU, x, W, lmbda_x, lmbda):
 
     # copy the triu elements to the tril
     # A = A + A.T - np.diag(np.diag(A))
-    for j in range(1, d):
-        for k in range(j, d):
+    for j in range(d):
+        for k in range(j+1, d):
             A[k][j] = A[j][k]
 
     return np.linalg.solve(A, b.ravel())
