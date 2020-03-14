@@ -192,7 +192,6 @@ def evaluate(model, feats, seeds, labels, topk={1, 5, 10, 20}):
                 scores[k].append(ndcg(true, pred, k))
 
         ndcg_res[n_seeds] = {k:np.mean(score) for k, score in scores.items()}
-
     return auc_res, ndcg_res
 
 
