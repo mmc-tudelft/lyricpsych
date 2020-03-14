@@ -31,6 +31,9 @@ class ALS:
 
         check_blas_config()
 
+    def __repr__(self):
+        return "ALS@{:d}".format(self.k)
+
     def _init_embeddings(self):
         for key, param in self.embeddings_.items():
             self.embeddings_[key] = param.astype(self.dtype) * self.init
@@ -113,6 +116,9 @@ class ALSFeat:
         self.dropout = dropout
 
         check_blas_config()
+
+    def __repr__(self):
+        return "ALSFeat@{:d}".format(self.k)
 
     def _init_embeddings(self):
         for key, param in self.embeddings_.items():

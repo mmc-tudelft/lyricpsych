@@ -1,18 +1,18 @@
 import os
 os.environ['LIWC_PATH'] = "data/LIWC.json"
-os.environ['OPENBLAS_NUM_THREADS'] = '1'
-os.environ['MKL_NUM_THREADS'] = '1'
-os.environ['NUMBA_NUM_THREADS'] = '6'
+# os.environ['OPENBLAS_NUM_THREADS'] = '1'
+# os.environ['MKL_NUM_THREADS'] = '1'
+# os.environ['NUMBA_NUM_THREADS'] = '2'
 
 from os.path import join, dirname
 import sys
 import argparse
 sys.path.append(join(dirname(__file__), '..'))
 
-import sys
-sys.path.append('../')
-
+import json
+import time
 from itertools import chain
+import pickle as pkl
 
 import numpy as np
 from scipy import sparse as sp
@@ -27,23 +27,50 @@ from skopt.utils import use_named_args
 
 from lyricpsych.tasks.fm import *
 from lyricpsych.tasks.als_feat import *
-from lyricpsych.utils import split_recsys_data, slice_row_sparse, argpart_sort
+from lyricpsych.utils import slice_row_sparse, argpart_sort
 from lyricpsych.metrics import ndcg
 
 
-def load_data(data_root, feat_type='mfcc'):
+SEARCH_SPACE = {
+    ALSFeat: [
+        Integer(5, 20, name='n_iters'),
+        Real(1, 1e+10, "log-uniform", name='lmbda'),
+        Real(1e-7, 1, "log-uniform", name='l2'),
+        Real(1e-2, 1e+2, "log-uniform", name='alpha')
+    ]
+}
+DATASETS = {
+    'msd50': 'msd_subset_top50',
+    'msd1k': 'msd_subset_top1000',
+    'mgt50': 'magnatag_subset_top50',
+    'mgt188': 'magnatag_subset_top188'
+}
+
+
+def load_data(data_root, feat_type='mfcc', split_type='klmatch'):
     label_fn = join(data_root, 'X.npz')
     feat_fn = join(data_root, 'Xfeat_{}.npy'.format(feat_type))
     folds = [
         np.load(join(data_root, 'fold_idx_{:d}.npy'.format(i)))
         for i in range(10)
     ]
-    seeds = np.load(join(data_root, 'seeds.npy'))
+    split_fn_tmp = 'fold{:d}_split_{}.pkl'
+    splits = [
+        pkl.load(
+            open(
+                join(
+                    data_root,
+                    split_fn_tmp.format(i, split_type)
+                ), 'rb'
+            )
+        )
+        for i in range(10)
+    ]
 
     # load the data
     X = sp.load_npz(label_fn)
     Y = np.load(feat_fn)
-    return X, Y, folds, seeds
+    return X, Y, folds, splits
 
 
 def build_sparse_seed_mat(seeds, n_songs, n_tags):
@@ -58,7 +85,7 @@ def build_sparse_seed_mat(seeds, n_songs, n_tags):
     return seeds_mat
 
 
-def split_data(test_fold, feat, label, folds, seeds, n_seeds=0, scale=False):
+def split_data(test_fold, feat, label, folds, splits, scale=False):
     """"""
     valid_fold = np.random.choice(
         [i for i in range(len(folds)) if i != test_fold]
@@ -75,24 +102,24 @@ def split_data(test_fold, feat, label, folds, seeds, n_seeds=0, scale=False):
     feat_cont = {}
     seed_cont = {}
 
-    if n_seeds > 0:
-        # build seed mat
-        seed_mat = build_sparse_seed_mat(seeds[:, :n_seeds], *label.shape)
-        seed_mat = seed_mat.tocsr()
-        label = label.tocsr()
-        for split, idx in eval_idx.items():
-            if split == 'train':
-                label_cont[split] = label[idx]
-                feat_cont[split] = feat[idx]
-            else:
-                label_cont[split] = label[idx] - seed_mat[idx]
-                feat_cont[split] = feat[idx]
-                seed_cont[split] = seed_mat[idx]
-    else:
-        # this is the auto-tagging case
-        for split, idx in eval_idx.items():
+    for split, idx in eval_idx.items():
+        if split == 'train':
             label_cont[split] = label[idx]
             feat_cont[split] = feat[idx]
+        else:
+            target_fold = valid_fold if split == 'valid' else test_fold
+            feat_cont[split] = {}
+            seed_cont[split] = {}
+            label_cont[split] = {}
+            for n_seed, case in splits[target_fold].items():
+                label_cont[split][n_seed] = case['gt']
+                seed_cont[split][n_seed] = case['seed']
+                feat_cont[split][n_seed] = feat[case['idx']]
+
+    # prepare the "final training dataset"
+    total_train_idx = np.r_[train_idx, folds[valid_fold]]
+    label_cont['total_train'] = label[total_train_idx]
+    feat_cont['total_train'] = feat[total_train_idx]
 
     return feat_cont, seed_cont, label_cont
 
@@ -120,65 +147,74 @@ def predict(model, data, indices, feat, UU=None):
         return None
 
 
-def evaluate(model, feats, seeds, labels, n_seeds=0, topk={1, 5, 10, 20}):
+def evaluate(model, feats, seeds, labels, topk={1, 5, 10, 20}):
     """"""
     auc_res = None
     if isinstance(model, ALSFeat):
         U = model.embeddings_['user']
         UU = U.T @ U
 
-    if n_seeds == 0:
-        n_tests, n_tags = labels.shape
-        p = feats @ model.embeddings_['feat']
-        p = p @ model.embeddings_['user'].T
-        y = labels.toarray()
-        auc_res = {
-            avg: roc_auc_score(y, p, average=avg)
-            for avg in ['micro', 'macro', 'samples']
-        }
+    ndcg_res = {}
+    for n_seeds, gt in labels.items():
 
-    scores = {k:[] for k in topk}
-    for i in range(labels.shape[0]):
-        true, _ = slice_row_sparse(labels, i)
-        if len(true) == 0:
-            continue
-        if seeds is not None:
-            seed_ind, seed_val = slice_row_sparse(seeds, i)
-        else:
-            seed_ind, seed_val = np.array([]), np.array([])
+        if n_seeds == 0:
+            n_tests, n_tags = gt.shape
+            p = feats[n_seeds] @ model.embeddings_['feat']
+            p = p @ model.embeddings_['user'].T
+            y = gt.toarray()
 
-        s = predict(model, seed_val, seed_ind, feats[i], UU=UU)
-        if len(seed_ind) > 0:
-            s[seed_ind] = -np.inf
-        # true = np.append(true, seed_ind)
-        pred = argpart_sort(s, max(topk), ascending=False)
+            auc_res = {}
+            for avg in ['micro', 'macro', 'samples']:
+                if avg == 'samples':
+                    safe_ix = np.where(y.sum(1) > 0)[0]
+                    p = p[safe_ix]
+                    y = y[safe_ix]
+                elif avg == 'macro':
+                    safe_ix = np.where(y.sum(0) > 0)[0]
+                    p = p[:, safe_ix]
+                    y = y[:, safe_ix]
+                auc_res[avg] = roc_auc_score(y, p, average=avg)
 
-        for k in topk:
-            scores[k].append(ndcg(true, pred, k))
+        scores = {k:[] for k in topk}
+        for i in range(gt.shape[0]):
+            true, _ = slice_row_sparse(gt, i)
+            if len(true) == 0:
+                continue
+            seed_ind, seed_val = slice_row_sparse(seeds[n_seeds], i)
 
-    ndcg_res = {k:np.mean(score) for k, score in scores.items()}
+            s = predict(model, seed_val, seed_ind, feats[n_seeds][i], UU=UU)
+            if len(seed_ind) > 0:
+                s[seed_ind] = -np.inf
+            # true = np.append(true, seed_ind)
+            pred = argpart_sort(s, max(topk), ascending=False)
+
+            for k in topk:
+                scores[k].append(ndcg(true, pred, k))
+
+        ndcg_res[n_seeds] = {k:np.mean(score) for k, score in scores.items()}
 
     return auc_res, ndcg_res
 
 
-def find_best(model, k, space, feats, seeds, labels):
+def find_best(model, k, feats, seeds, labels):
     """"""
+    space = SEARCH_SPACE[model]
 
-    if model == 'ALSFeat':
+    if model == ALSFeat:
+
         @use_named_args(space)
         def objective(**params):
-            als = ALSFeat(k, dtype='float64', dropout=0, **params)
+            als = model(k, dtype='float64', dropout=0, **params)
             als.fit(
                 labels['train'].T.tocsr(),
                 feats['train'],
                 verbose=True
             )
-            if seeds is not None: seed = seeds['valid']
-            else:                 seed = None
-            results = evaluate(
-                als, feats['valid'], seed, labels['valid'], n_seeds
+            auc_, ndcg_ = evaluate(
+                als, feats['valid'], seeds['valid'], labels['valid']
             )
-            return -results[1][10]
+            avg_ndcg10 = np.mean([v[10] for k, v in ndcg_.items()])
+            return -avg_ndcg10
 
         res = gp_minimize(objective, space, n_calls=50,
                           random_state=0, verbose=True)
@@ -188,60 +224,91 @@ def find_best(model, k, space, feats, seeds, labels):
         return None
 
 
-if __name__ == "__main__":
-    data_root = '/Users/jaykim/Downloads/datasets/msd/msd_subset_top1000/splits/'
-    eval_target = 'test'
-    fold = 0
-    n_seeds = 1
-    k = 32
-    lmbda = 1e+6
-    l2 = 1e-6
-    alpha = 1
-    scale = False
+def save_result(dataset, feat_type, fold, k, scale,
+                best_model, best_param, auc_, ndcg_,
+                out_root):
+    """"""
+    result = {
+        'dataset': dataset,
+        'feat_type': feat_type,
+        'fold': fold, 'k': k,
+        'scale': scale, 'model': str(best_model),
+        'auc': auc_, 'ndcg': ndcg_,
+        'best_param': {
+            k:int(v) if k=='n_iters' else v
+            for k, v in best_param.items()
+        }
+    }
+    fn = join(
+        out_root,
+        '{dataset}_fold{fold:d}_{model}.json'.format(**result)
+    )
+    json.dump(result, open(fn, 'w'))
 
-    labels, feats, folds, seeds = load_data(data_root)
-    feats, seeds, labels = split_data(fold, feats, labels, folds, seeds, n_seeds)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('data_root', type=str,
+                        help='path where all autotagging data is stored')
+    parser.add_argument('out_root', type=str,
+                        help='path where output is stored')
+    parser.add_argument('dataset', type=str,
+                        choices={'msd50', 'msd1k', 'mgt50', 'mgt188'},
+                        help='type of dataset')
+    parser.add_argument('feature', type=str, choices={'mfcc', 'rand'},
+                        help='type of audio feature')
+    parser.add_argument('fold', type=int, choices=set(range(10)),
+                        help='target fold to be tested')
+    parser.add_argument('k', type=int, choices={32, 64, 128},
+                        help='model size')
+    parser.add_argument('--sacle', dest='scale', action='store_true')
+    parser.add_argument('--no-scale', dest='scale', action='store_false')
+    parser.set_defaults(scale=True)
+    args = parser.parse_args()
+
+    # parse the input
+    data_root = args.data_root
+    out_root = args.out_root
+    dataset = args.dataset
+    feat_type = args.feature
+    fold = args.fold
+    k = args.k
+    scale = args.scale
+    model = ALSFeat  # {ALSFeat, FactorizationMachine, MLPClassifier}
+
+    # load the dataset and split (using pre-split data)
+    data_loc = DATASETS[dataset]
+    data_path = join(data_root, data_loc.split('_')[0], data_loc, 'splits')
+    raw_labels, raw_feats, folds, splits = load_data(data_path, feat_type)
+    feats, seeds, labels = split_data(fold, raw_feats, raw_labels, folds, splits)
 
     if scale:
         # scale data
         sclr = StandardScaler()
         feats['train'] = sclr.fit_transform(feats['train'])
-        feats['valid'] = sclr.transform(feats['valid'])
-        feats['test'] = sclr.transform(feats['test'])
+        for split in ['valid', 'test']:
+            for n_seed, feat in feats[split].items():
+                feats[split][n_seed] = sclr.transform(feat)
 
-    als = ALSFeat(32, alpha=5, l2=1e-7, lmbda=1e+10, n_iters=15, dropout=0)
-    als.fit(labels['train'].T.tocsr(), feats['train'], verbose=True)
-    if n_seeds == 0:
-        results = evaluate(als, feats['valid'], None, labels['valid'], n_seeds)
-    else:
-        results = evaluate(als, feats['valid'], seeds['valid'], labels['valid'], n_seeds)
-    print(results)
+    # find the best model using hyper-parameter tuner (GP)
+    res = find_best(model, k, feats, seeds, labels)
+    best_param = {
+        SEARCH_SPACE[model][i].name: res.x[i]
+        for i in range(len(res.x))
+    }
+    best_model = model(k, dtype='float64', dropout=0, **best_param)
+    best_model.fit(
+        labels['total_train'].T.tocsr(),
+        feats['total_train'],
+        verbose=True
+    )
 
-    # The list of hyper-parameters we want to optimize. For each one we define the
-    # bounds, the corresponding scikit-learn parameter name, as well as how to
-    # sample values from that dimension (`'log-uniform'` for the learning rate)
-    # space  = [Integer(10, 30, name='n_iters'),
-    #           Real(1e+5, 1e+10, "log-uniform", name='lmbda'),
-    #           Real(1e-4, 1e+4, "log-uniform", name='l2'),
-    #           Real(1e-10, 1e+2, "log-uniform", name='alpha')]
-    # res = find_best('ALSFeat', k, space, feats, labels)
-    # best_model = ALSFeat(
-    #     k, alpha=res.x[3], l2=res.x[2], lmbda=res.x[1], n_iters=res.x[0],
-    #     dtype='float64', dropout=0
-    # )
+    # final evaluation step
+    auc_, ndcg_ = evaluate(best_model, feats['test'], seeds['test'], labels['test'])
 
-    # total_train_label = sp.vstack(
-    #     [labels['train'], labels['valid'] + seeds['valid']]
-    # )
-    # total_train_feat = np.vstack([feats['train'], feats['valid']])
-
-    # best_model.fit(
-    #     total_train_label.T.tocsr(),
-    #     total_train_feat,
-    #     verbose=True
-    # )
-    # results = evaluate(
-    #     best_model, feats['test'], seeds['test'], labels['test'], n_seeds
-    # )
-
-    # print(results)
+    # save the result to the disk
+    save_result(
+        dataset, feat_type, fold, k, scale,
+        best_model, best_param, auc_, ndcg_,
+        out_root
+    )
