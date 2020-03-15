@@ -155,7 +155,8 @@ def predict(model, data, indices, feat, UU=None):
         return None
 
 
-def evaluate(model, feats, seeds, labels, topk={1, 5, 10, 20}):
+def evaluate(model, feats, seeds, labels, topk={1, 5, 10, 20},
+             mode='all', avg=['micro', 'macro', 'samples']):
     """"""
     auc_res = None
     if isinstance(model, ALSFeat):
@@ -165,14 +166,14 @@ def evaluate(model, feats, seeds, labels, topk={1, 5, 10, 20}):
     ndcg_res = {}
     for n_seeds, gt in labels.items():
 
-        if n_seeds == 0:
+        if n_seeds == 0 and (mode == 'all' or mode == 'noseed'):
             n_tests, n_tags = gt.shape
             p = feats[n_seeds] @ model.embeddings_['feat']
             p = p @ model.embeddings_['user'].T
             y = gt.toarray()
 
             auc_res = {}
-            for avg in ['micro', 'macro', 'samples']:
+            for avg in avg:
                 if avg == 'samples':
                     safe_ix = np.where(y.sum(1) > 0)[0]
                     p = p[safe_ix]
@@ -183,31 +184,38 @@ def evaluate(model, feats, seeds, labels, topk={1, 5, 10, 20}):
                     y = y[:, safe_ix]
                 auc_res[avg] = roc_auc_score(y, p, average=avg)
 
-        scores = {k:[] for k in topk}
-        for i in range(gt.shape[0]):
-            true, _ = slice_row_sparse(gt, i)
-            if len(true) == 0:
-                continue
-            seed_ind, seed_val = slice_row_sparse(seeds[n_seeds], i)
+        if mode == 'seed' or mode == 'all':
+            scores = {k:[] for k in topk}
+            for i in range(gt.shape[0]):
+                true, _ = slice_row_sparse(gt, i)
+                if len(true) == 0:
+                    continue
+                seed_ind, seed_val = slice_row_sparse(seeds[n_seeds], i)
 
-            s = predict(model, seed_val, seed_ind, feats[n_seeds][i], UU=UU)
-            if len(seed_ind) > 0:
-                s[seed_ind] = -np.inf
-            # true = np.append(true, seed_ind)
-            pred = argpart_sort(s, max(topk), ascending=False)
+                s = predict(
+                    model, seed_val, seed_ind, feats[n_seeds][i], UU=UU
+                )
+                if len(seed_ind) > 0:
+                    s[seed_ind] = -np.inf
+                pred = argpart_sort(s, max(topk), ascending=False)
 
-            for k in topk:
-                scores[k].append(ndcg(true, pred, k))
+                for k in topk:
+                    scores[k].append(ndcg(true, pred, k))
 
-        ndcg_res[n_seeds] = {k:np.mean(score) for k, score in scores.items()}
+            ndcg_res[n_seeds] = {
+                k:np.mean(score) for k, score in scores.items()
+            }
+        else:
+            ndcg_res[n_seeds] = {k:-1 for k in topk}
+
     return auc_res, ndcg_res
 
 
 def find_best(model, k, feats, seeds, labels, coldstart=False,
               n_calls=50, random_state=0, verbose=True):
     """"""
-    isseed = 'noseed' if coldstart else 'seed'
-    space = SEARCH_SPACE[model][isseed]
+    eval_mode = 'noseed' if coldstart else 'seed'
+    space = SEARCH_SPACE[model][eval_mode]
 
     if model == ALSFeat:
 
@@ -220,7 +228,8 @@ def find_best(model, k, feats, seeds, labels, coldstart=False,
                 verbose=True
             )
             auc_, ndcg_ = evaluate(
-                als, feats['valid'], seeds['valid'], labels['valid']
+                als, feats['valid'], seeds['valid'], labels['valid'],
+                mode=eval_mode, topk={10}, avg=['macro']
             )
             if coldstart:
                 trg_meas = auc_['macro']
@@ -277,7 +286,7 @@ if __name__ == "__main__":
                         help='model size')
     parser.add_argument('--sacle', dest='scale', action='store_true')
     parser.add_argument('--no-scale', dest='scale', action='store_false')
-    parser.set_defaults(scale=True)
+    parser.set_defaults(scale=False)
     parser.add_argument('--seed', dest='seed', action='store_true')
     parser.add_argument('--no-seed', dest='seed', action='store_false')
     parser.set_defaults(seed=True)
@@ -309,10 +318,12 @@ if __name__ == "__main__":
                 feats[split][n_seed] = sclr.transform(feat)
 
     # find the best model using hyper-parameter tuner (GP)
-    res = find_best(model, k, feats, seeds, labels, seed)
+    res = find_best(model, k, feats, seeds, labels, coldstart=not seed)
+    eval_mode = 'noseed' if not seed else 'seed'
+    space = SEARCH_SPACE[model][eval_mode]
     best_param = {
-        SEARCH_SPACE[model][i].name: res.x[i]
-        for i in range(len(res.x))
+        space[i].name: res['x'][i]
+        for i in range(len(res['x']))
     }
     best_model = model(k, dtype='float64', dropout=0, **best_param)
     best_model.fit(
@@ -322,7 +333,9 @@ if __name__ == "__main__":
     )
 
     # final evaluation step
-    auc_, ndcg_ = evaluate(best_model, feats['test'], seeds['test'], labels['test'])
+    auc_, ndcg_ = evaluate(
+        best_model, feats['test'], seeds['test'], labels['test'], mode='all'
+    )
 
     # save the result to the disk
     save_result(
