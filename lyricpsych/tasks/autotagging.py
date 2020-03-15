@@ -1,6 +1,7 @@
 from os.path import join, dirname
 import sys
 import argparse
+from itertools import chain
 
 import pandas as pd
 import numpy as np
@@ -13,7 +14,15 @@ from sklearn.ensemble import RandomForestClassifier  # eat up a lot of memory
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import roc_auc_score
 
+from skopt import gp_minimize
+from skopt.space import Real, Integer
+from skopt.utils import use_named_args
+
 from ..files import mxm2msd as mxm2msd_fn
+from ..utils import (get_all_comb,
+                     preproc_feat,
+                     load_csr_data,
+                     prepare_feature)
 
 
 def load_data(label_fn, feature_fn, row='tracks', col='tags'):
@@ -25,7 +34,7 @@ def load_data(label_fn, feature_fn, row='tracks', col='tags'):
     labels, tracks, tags = load_csr_data(label_fn, row, col)
     
     # prepare feature
-    feature, track2id, pca, sclr = prepare_feature(feature_fn)
+    feature, track2id = prepare_feature(feature_fn)
     
     reindex = [track2id[t] for t in tracks]
     X = {key:val[reindex] for key, val in feature.items()}
@@ -40,20 +49,26 @@ def load_data(label_fn, feature_fn, row='tracks', col='tags'):
     return X, y
 
 
-def split_data(X, y, train_ratio=0.7, valid_ratio=0.15):
+def split_data(X, y, spliter):
     """"""
-    rnd_idx = np.random.permutation(y.shape[0])
-    train_bound = int(len(rnd_idx) * train_ratio)
-    valid_bound = train_bound + int(len(rnd_idx) * valid_ratio)
-    Xtr, Xvl, Xts = X[:train_bound], X[train_bound:valid_bound], X[valid_bound:]
-    ytr, yvl, yts = y[:train_bound], y[train_bound:valid_bound], y[valid_bound:]
+    tr_ix, ts_ix = next(spliter.split(y, y))
+    tr_ix, vl_ix = next(spliter.split(y[tr_ix], y[tr_ix]))
+    split_idx = {'train':tr_ix, 'valid':vl_ix, 'test':ts_ix}
+     
+    # preprocess the data
+    x, feat_cols = preproc_feat(X, split_idx)
+    Xtr, Xvl, Xts = x['train'], x['valid'], x['test']
+    ytr, yvl, yts = y[tr_ix], y[vl_ix], y[ts_ix]
+    
     return (Xtr, Xvl, Xts), (ytr, yvl, yts)
 
 
-def instantiate_model(model_class, model_size): 
+def instantiate_model(model_class, model_size):
     model_size = int(model_size)
     if model_class == 'LogisticRegression':
-        model = OneVsRestClassifier(LogisticRegression(solver='lbfgs'))
+        model = OneVsRestClassifier(
+            LogisticRegression(solver='lbfgs', max_iter=300)
+        )
     elif model_class == 'RandomForestClassifier':
         model = RandomForestClassifier(model_size, n_jobs=-1)
     elif model_class == 'MLPClassifier':
@@ -68,40 +83,6 @@ def instantiate_model(model_class, model_size):
         )
     return model
 
-
-def get_model_instance(model_class, train_data, valid_data,
-                       n_opt_calls=50, rnd_state=0):
-    """"""
-    search_spaces = {
-        'RandomForestClassifier': [Real(1, 50, "log-uniform", name='model_size')],
-        'MLPClassifier': [Real(1, 50, "log-uniform", name='model_size')]
-    }
-    
-    if model_class in search_spaces:
-        # setup objective func evaluated by optimizer
-        @use_named_args(search_spaces[model_class])
-        def _objective(**params):
-            # instantiate a model
-            model = instantiate_model(model_class, **params) 
-            
-            # evaluate the model
-            scores = eval_model(model, train_data, valid_data)
-            
-            return -np.mean(scores)
-
-        # search best model with gaussian process based
-        res_gp = gp_minimize(
-            _objective, search_spaces[model_class],
-            n_calls=n_opt_calls, random_state=rnd_state
-        )
-        print(res_gp.fun) 
-        model_size = res_gp.x[0]
-        best_model = instantiate_model(model_class, model_size)
-    else:
-        best_model = instantiate_model(model_class, -1)  # model_size is not used
-
-    return best_model
-    
         
 def eval_model(model, train_data, valid_data):
     """"""
@@ -116,8 +97,44 @@ def eval_model(model, train_data, valid_data):
     return roc_auc_score(valid_data[1], p, 'samples')  # AUC_t
 
 
+def get_model_instance(model_class, train_data, valid_data,
+                       n_opt_calls=50, rnd_state=0,
+                       model_init_f=instantiate_model,
+                       eval_f=eval_model):
+    """"""
+    search_spaces = {
+        'RandomForestClassifier': [Real(1, 50, "log-uniform", name='model_size')],
+        'MLPClassifier': [Real(1, 50, "log-uniform", name='model_size')]
+    }
+    
+    if model_class in search_spaces:
+        # setup objective func evaluated by optimizer
+        @use_named_args(search_spaces[model_class])
+        def _objective(**params):
+            # instantiate a model
+            model = model_init_f(model_class, **params) 
+            
+            # evaluate the model
+            scores = eval_f(model, train_data, valid_data)
+            
+            return -np.mean(scores)
+
+        # search best model with gaussian process based
+        res_gp = gp_minimize(
+            _objective, search_spaces[model_class],
+            n_calls=n_opt_calls, random_state=rnd_state
+        )
+        print(res_gp.fun, res_gp.x)
+        model_size = res_gp.x[0]
+        best_model = model_init_f(model_class, model_size)
+    else:
+        best_model = model_init_f(model_class, -1)  # model_size is not used
+
+    return best_model
+    
+
 def full_factorial_design(
-    text_feats=['personality', 'linguistic', 'topic'],
+    text_feats=['audio', 'liwc', 'value', 'personality', 'linguistic', 'topic'],
     models=['LogisticRegression', 'RandomForestClassifier', 'MLPClassifier']):
     
     # 1. models / 2. feature combs
@@ -155,14 +172,7 @@ if __name__ == "__main__":
     args = setup_argparse()
     
     # load run specific packages
-    from itertools import chain
-    from skopt import gp_minimize
-    from skopt.space import Real, Integer
-    from skopt.utils import use_named_args
-    
-    from ..utils import (load_csr_data,
-                         prepare_feature,
-                         get_all_comb)
+    from sklearn.model_selection import ShuffleSplit
     
     # get full factorial design
     configs = full_factorial_design()
@@ -172,15 +182,16 @@ if __name__ == "__main__":
     
     # run
     result = []
+    spliter = ShuffleSplit(train_size=0.8)
     for i, conf in enumerate(configs):
         print(conf)
         print('Running {:d}th / {:d} run...'.format(i+1, len(configs)))
         
         # prepare feature according to the design
-        x = np.concatenate([v for k, v in X.items() if conf[k]], axis=1)
+        x = {k:v for k, v in X.items() if conf[k]}
         for j in range(args.n_rep):
             # split data
-            (Xtr, Xvl, Xts), (ytr, yvl, yts) = split_data(x, y)
+            (Xtr, Xvl, Xts), (ytr, yvl, yts) = split_data(x, y, spliter)
             
             # find best model 
             model = get_model_instance(conf['model'], (Xtr, ytr), (Xvl, yvl))
@@ -189,6 +200,7 @@ if __name__ == "__main__":
             X_ = np.concatenate([Xtr, Xvl], axis=0)
             y_ = np.concatenate([ytr, yvl], axis=0)
             test = eval_model(model, (X_, y_), (Xts, yts))
+            print(test)
             
             # register results
             metrics = {'trial': j, 'score': np.mean(test)}

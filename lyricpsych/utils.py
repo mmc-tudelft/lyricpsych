@@ -406,11 +406,7 @@ def densify(ui_csr, users, items, item_feat=None, thresh=5, user_sample=0.3):
 
 
 def prepare_feature(feature_fn):
-    """"""
-    # for some pre-processors
-    pca = PCA(whiten=True)
-    sclr = StandardScaler()
-    
+    """"""   
     # getting mxm->msd map
     mxm2msd = dict(
         [line.strip('\n').split(',') for line in open(mxm2msd_fn())]
@@ -419,7 +415,7 @@ def prepare_feature(feature_fn):
     # load the feature data and concatenate
     with h5py.File(feature_fn, 'r') as hf: 
         
-        X = []
+        features = {}
         bounds = [0]
         feature_sets = [
             k.split('_cols')[0]
@@ -429,36 +425,62 @@ def prepare_feature(feature_fn):
         
         for feat in feature_sets:
             # fetch features per set
-            x = hf['features'][feat][:]
-            if feat == 'topic':
-                x = pca.fit_transform(x) 
-            else:
-                if feat == 'audio':
-                    xsum = x.sum(1)
-                    non_zero_idx = np.where(xsum > 0)[0]
-                    zero_idx = np.where(xsum == 0)[0]
-                    sclr.fit(x[non_zero_idx])
-                    x[non_zero_idx] = sclr.transform(x[non_zero_idx])
-                    x[zero_idx] = np.random.randn(len(zero_idx), x.shape[1])
-                else:
-                    x = sclr.fit_transform(x)
-                    
-            X.append(x) 
-            bounds.append(bounds[-1] + x.shape[1])
-        feature = np.concatenate(X, axis=1)
+            features[feat] = hf['features'][feat][:]
+            
         track2id = {
             mxm2msd[t]:i for i, t
             in enumerate(hf['features']['ids'][:])
         }
-        
-    # split back the features with the bound
-    features = {}
-    for i, feat in enumerate(feature_sets):
-        features[feat] = feature[:, bounds[i]:bounds[i+1]]  
     
-    return features, track2id, pca, sclr, feature_sets
+    return features, track2id
 
 
+def preproc_feat(X, split_idx):
+    """"""
+    # prepare container
+    Xout = {split:{} for split in split_idx.keys()}
+    # for some pre-processors
+    pca = PCA(whiten=True)
+    sclr = StandardScaler()
+    feat_names = list(X.keys())
+    for name in feat_names:
+        if name == 'topic': proc = pca
+        else:               proc = sclr
+            
+        for split, ix in split_idx.items():
+            # retrieve slice of the data
+            Xout[split][name] = X[name][ix]
+            
+            if name == 'audio':
+                # get the non-zero / zero entries
+                xsum = Xout[split][name].sum(1)
+                nnz_idx = np.where(xsum > 0)[0]
+                zro_idx = np.where(xsum == 0)[0] 
+                
+                # if it's training set, fit the processor
+                if split == 'train':
+                    proc.fit(Xout[split][name][nnz_idx])
+                    
+                # process non-zero rows
+                Xout[split][name][nnz_idx] = proc.transform(
+                    Xout[split][name][nnz_idx]
+                )
+                # assign random vectors to the zero rows
+                Xout[split][name][zro_idx] = np.random.randn(
+                    len(zro_idx), X[name].shape[1]
+                ) 
+            else:
+                # normal case
+                if split == 'train': proc.fit(Xout[split][name])
+                Xout[split][name] = proc.transform(Xout[split][name])
+                
+    Xout = {
+        split:np.concatenate([x[name] for name in feat_names], axis=1)
+        for split, x in Xout.items()
+    }
+    return Xout, feat_names
+
+            
 def get_all_comb(cases, include_null=False):
     combs = [
         combinations(cases, j)
