@@ -32,12 +32,20 @@ from lyricpsych.metrics import ndcg
 
 
 SEARCH_SPACE = {
-    ALSFeat: [
-        Integer(5, 20, name='n_iters'),
-        Real(1, 1e+10, "log-uniform", name='lmbda'),
-        Real(1e-7, 1, "log-uniform", name='l2'),
-        Real(1e-2, 1e+2, "log-uniform", name='alpha')
-    ]
+    ALSFeat: {
+        'noseed':[
+            Integer(5, 20, name='n_iters'),
+            Real(1e+5, 1e+10, "log-uniform", name='lmbda'),
+            Real(1e-7, 1, "log-uniform", name='l2'),
+            Real(1e-2, 1e+2, "log-uniform", name='alpha')
+        ],
+        'seed':[
+            Integer(5, 20, name='n_iters'),
+            Real(1, 10, "log-uniform", name='lmbda'),
+            Real(1e-7, 1, "log-uniform", name='l2'),
+            Real(1e-2, 1e+2, "log-uniform", name='alpha')
+        ]
+    }
 }
 DATASETS = {
     'msd50': 'msd_subset_top50',
@@ -195,9 +203,11 @@ def evaluate(model, feats, seeds, labels, topk={1, 5, 10, 20}):
     return auc_res, ndcg_res
 
 
-def find_best(model, k, feats, seeds, labels):
+def find_best(model, k, feats, seeds, labels, coldstart=False,
+              n_calls=50, random_state=0, verbose=True):
     """"""
-    space = SEARCH_SPACE[model]
+    isseed = 'noseed' if coldstart else 'seed'
+    space = SEARCH_SPACE[model][isseed]
 
     if model == ALSFeat:
 
@@ -212,11 +222,16 @@ def find_best(model, k, feats, seeds, labels):
             auc_, ndcg_ = evaluate(
                 als, feats['valid'], seeds['valid'], labels['valid']
             )
-            avg_ndcg10 = np.mean([v[10] for k, v in ndcg_.items()])
-            return -avg_ndcg10
+            if coldstart:
+                trg_meas = auc_['macro']
+            else:
+                trg_meas = np.mean([v[10] for k, v in ndcg_.items() if k > 0])
 
-        res = gp_minimize(objective, space, n_calls=50,
-                          random_state=0, verbose=True)
+            return -trg_meas
+
+        res = gp_minimize(objective, space, n_calls=n_calls,
+                          random_state=random_state,
+                          verbose=verbose)
         return res
 
     elif model == 'FactorizationMachine':
@@ -263,6 +278,9 @@ if __name__ == "__main__":
     parser.add_argument('--sacle', dest='scale', action='store_true')
     parser.add_argument('--no-scale', dest='scale', action='store_false')
     parser.set_defaults(scale=True)
+    parser.add_argument('--seed', dest='seed', action='store_true')
+    parser.add_argument('--no-seed', dest='seed', action='store_false')
+    parser.set_defaults(seed=True)
     args = parser.parse_args()
 
     # parse the input
@@ -273,6 +291,7 @@ if __name__ == "__main__":
     fold = args.fold
     k = args.k
     scale = args.scale
+    seed = args.seed
     model = ALSFeat  # {ALSFeat, FactorizationMachine, MLPClassifier}
 
     # load the dataset and split (using pre-split data)
@@ -290,7 +309,7 @@ if __name__ == "__main__":
                 feats[split][n_seed] = sclr.transform(feat)
 
     # find the best model using hyper-parameter tuner (GP)
-    res = find_best(model, k, feats, seeds, labels)
+    res = find_best(model, k, feats, seeds, labels, seed)
     best_param = {
         SEARCH_SPACE[model][i].name: res.x[i]
         for i in range(len(res.x))
