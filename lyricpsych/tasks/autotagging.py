@@ -32,10 +32,10 @@ def load_data(label_fn, feature_fn, row='tracks', col='tags'):
     )
     msd2mxm = {msd:mxm for mxm, msd in mxm2msd.items()}
     labels, tracks, tags = load_csr_data(label_fn, row, col)
-    
+
     # prepare feature
     feature, track2id = prepare_feature(feature_fn)
-    
+
     reindex = [track2id[t] for t in tracks]
     X = {key:val[reindex] for key, val in feature.items()}
     y = labels
@@ -45,7 +45,7 @@ def load_data(label_fn, feature_fn, row='tracks', col='tags'):
     whitelist = np.where(y.sum(1) > 0)[0]
     X = {key:val[whitelist] for key, val in X.items()}
     y = y[whitelist]
-    
+
     return X, y
 
 
@@ -54,12 +54,12 @@ def split_data(X, y, spliter):
     tr_ix, ts_ix = next(spliter.split(y, y))
     tr_ix, vl_ix = next(spliter.split(y[tr_ix], y[tr_ix]))
     split_idx = {'train':tr_ix, 'valid':vl_ix, 'test':ts_ix}
-     
+
     # preprocess the data
     x, feat_cols = preproc_feat(X, split_idx)
     Xtr, Xvl, Xts = x['train'], x['valid'], x['test']
     ytr, yvl, yts = y[tr_ix], y[vl_ix], y[ts_ix]
-    
+
     return (Xtr, Xvl, Xts), (ytr, yvl, yts)
 
 
@@ -83,17 +83,17 @@ def instantiate_model(model_class, model_size):
         )
     return model
 
-        
+
 def eval_model(model, train_data, valid_data):
     """"""
     # train the model
     model.fit(*train_data)
-    
+
     # test the model
     p = model.predict_proba(valid_data[0])
     if isinstance(model, RandomForestClassifier):
         p = np.concatenate([p_[:, 1][:, None] for p_ in p], axis=1)
-        
+
     return roc_auc_score(valid_data[1], p, 'samples')  # AUC_t
 
 
@@ -103,20 +103,20 @@ def get_model_instance(model_class, train_data, valid_data,
                        eval_f=eval_model):
     """"""
     search_spaces = {
-        'RandomForestClassifier': [Real(1, 50, "log-uniform", name='model_size')],
-        'MLPClassifier': [Real(1, 50, "log-uniform", name='model_size')]
+        'RandomForestClassifier': [Real(50, 100, "log-uniform", name='model_size')],
+        'MLPClassifier': [Real(50, 100, "log-uniform", name='model_size')]
     }
-    
+
     if model_class in search_spaces:
         # setup objective func evaluated by optimizer
         @use_named_args(search_spaces[model_class])
         def _objective(**params):
             # instantiate a model
-            model = model_init_f(model_class, **params) 
-            
+            model = model_init_f(model_class, **params)
+
             # evaluate the model
             scores = eval_f(model, train_data, valid_data)
-            
+
             return -np.mean(scores)
 
         # search best model with gaussian process based
@@ -131,12 +131,12 @@ def get_model_instance(model_class, train_data, valid_data,
         best_model = model_init_f(model_class, -1)  # model_size is not used
 
     return best_model
-    
+
 
 def full_factorial_design(
     text_feats=['audio', 'liwc', 'value', 'personality', 'linguistic', 'topic'],
     models=['LogisticRegression', 'RandomForestClassifier', 'MLPClassifier']):
-    
+
     # 1. models / 2. feature combs
     cases = get_all_comb(text_feats)
     designs = []
@@ -144,14 +144,14 @@ def full_factorial_design(
         feats = dict.fromkeys(text_feats, False)
         for feat in case:
             feats[feat] = True
-        
+
         for model in models:
             row = {'model': model}
             row.update(feats)
             designs.append(row)
     return designs
-            
-        
+
+
 def setup_argparse():
     # setup argparser
     import argparse
@@ -170,43 +170,43 @@ def setup_argparse():
 
 if __name__ == "__main__":
     args = setup_argparse()
-    
+
     # load run specific packages
     from sklearn.model_selection import ShuffleSplit
-    
+
     # get full factorial design
     configs = full_factorial_design()
-    
+
     # load the relevant data
     X, y = load_data(args.autotagging_fn, args.feature_fn)
-    
+
     # run
     result = []
     spliter = ShuffleSplit(train_size=0.8)
     for i, conf in enumerate(configs):
         print(conf)
         print('Running {:d}th / {:d} run...'.format(i+1, len(configs)))
-        
+
         # prepare feature according to the design
         x = {k:v for k, v in X.items() if conf[k]}
         for j in range(args.n_rep):
             # split data
             (Xtr, Xvl, Xts), (ytr, yvl, yts) = split_data(x, y, spliter)
-            
+
             # find best model 
             model = get_model_instance(conf['model'], (Xtr, ytr), (Xvl, yvl))
-            
+
             # prep test
             X_ = np.concatenate([Xtr, Xvl], axis=0)
             y_ = np.concatenate([ytr, yvl], axis=0)
             test = eval_model(model, (X_, y_), (Xts, yts))
             print(test)
-            
+
             # register results
             metrics = {'trial': j, 'score': np.mean(test)}
             conf_copy = conf.copy()
             conf_copy.update(metrics)
             result.append(conf_copy)
-            
+
     # save
     pd.DataFrame(result).to_csv(args.out_fn)
