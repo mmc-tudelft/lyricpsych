@@ -16,6 +16,7 @@ from nltk.util import ngrams
 
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import ShuffleSplit
 
 import h5py
 
@@ -479,6 +480,23 @@ def preproc_feat(X, split_idx):
         for split, x in Xout.items()
     }
     return Xout, feat_names
+
+
+def split_data(X, y, spliter=None, train_ratio=0.8):
+    """"""
+    if spliter is None:
+        spliter = ShuffleSplit(train_size=train_ratio)
+        
+    tr_ix, ts_ix = next(spliter.split(y, y))
+    tr_ix, vl_ix = next(spliter.split(y[tr_ix], y[tr_ix]))
+    split_idx = {'train':tr_ix, 'valid':vl_ix, 'test':ts_ix}
+
+    # preprocess the data
+    x, feat_cols = preproc_feat(X, split_idx)
+    Xtr, Xvl, Xts = x['train'], x['valid'], x['test']
+    ytr, yvl, yts = y[tr_ix], y[vl_ix], y[ts_ix]
+
+    return (Xtr, Xvl, Xts), (ytr, yvl, yts)
 
             
 def get_all_comb(cases, include_null=False):

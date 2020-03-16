@@ -9,12 +9,13 @@ from scipy import sparse as sp
 
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier  # eat up a lot of memory
+from sklearn.tree import DecisionTreeClassifier
+# from sklearn.ensemble import RandomForestClassifier  # eat up a lot of memory
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score
 
 from ..files import mxm2msd as mxm2msd_fn
-from ..utils import prepare_feature
+from ..utils import prepare_feature, split_data
 
 
 def load_data(label_fn, feature_fn, row='tracks', col='tags'):
@@ -53,8 +54,9 @@ def instantiate_clf(model_class, model_size):
         model = LogisticRegression(max_iter=100,
                                    solver='lbfgs',
                                    multi_class='auto')
-    elif model_class == 'RandomForestClassifier':
-        model = RandomForestClassifier(model_size, n_jobs=-1)
+    elif model_class == 'DecisionTreeClassifier':
+        # model = RandomForestClassifier(model_size, n_jobs=-1)
+        model = DecisionTreeClassifier()
     elif model_class == 'MLPClassifier':
         model = MLPClassifier(
             (model_size,), learning_rate_init=0.001, early_stopping=True,
@@ -89,8 +91,7 @@ if __name__ == "__main__":
 
     # load run specific packages 
     from sklearn.model_selection import StratifiedShuffleSplit
-    from .autotagging import (split_data,
-                              get_model_instance,
+    from .autotagging import (get_model_instance,
                               full_factorial_design)
 
     # get full factorial design

@@ -10,7 +10,7 @@ from scipy import sparse as sp
 
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier  # eat up a lot of memory
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import roc_auc_score
 
@@ -22,7 +22,8 @@ from ..files import mxm2msd as mxm2msd_fn
 from ..utils import (get_all_comb,
                      preproc_feat,
                      load_csr_data,
-                     prepare_feature)
+                     prepare_feature,
+                     split_data)
 
 
 def load_data(label_fn, feature_fn, row='tracks', col='tags'):
@@ -49,28 +50,14 @@ def load_data(label_fn, feature_fn, row='tracks', col='tags'):
     return X, y
 
 
-def split_data(X, y, spliter):
-    """"""
-    tr_ix, ts_ix = next(spliter.split(y, y))
-    tr_ix, vl_ix = next(spliter.split(y[tr_ix], y[tr_ix]))
-    split_idx = {'train':tr_ix, 'valid':vl_ix, 'test':ts_ix}
-
-    # preprocess the data
-    x, feat_cols = preproc_feat(X, split_idx)
-    Xtr, Xvl, Xts = x['train'], x['valid'], x['test']
-    ytr, yvl, yts = y[tr_ix], y[vl_ix], y[ts_ix]
-
-    return (Xtr, Xvl, Xts), (ytr, yvl, yts)
-
-
 def instantiate_model(model_class, model_size):
     model_size = int(model_size)
     if model_class == 'LogisticRegression':
         model = OneVsRestClassifier(
             LogisticRegression(solver='lbfgs', max_iter=300)
         )
-    elif model_class == 'RandomForestClassifier':
-        model = RandomForestClassifier(model_size, n_jobs=-1)
+    elif model_class == 'DecisionTreeClassifier':
+        model = DecisionTreeClassifier()
     elif model_class == 'MLPClassifier':
         model = MLPClassifier(
             (model_size,), learning_rate_init=0.001, early_stopping=True,
@@ -78,7 +65,7 @@ def instantiate_model(model_class, model_size):
         )
     else:
         raise ValueError(
-            '[ERROR] only LogisticRegression, RandomForestClassifier, ' +
+            '[ERROR] only LogisticRegression, DecisionTreeClassifier, ' +
             'MLPClassifier are supported!'
         )
     return model
@@ -91,7 +78,7 @@ def eval_model(model, train_data, valid_data):
 
     # test the model
     p = model.predict_proba(valid_data[0])
-    if isinstance(model, RandomForestClassifier):
+    if isinstance(model, (DecisionTreeClassifier)):
         p = np.concatenate([p_[:, 1][:, None] for p_ in p], axis=1)
 
     return roc_auc_score(valid_data[1], p, 'samples')  # AUC_t
@@ -103,7 +90,6 @@ def get_model_instance(model_class, train_data, valid_data,
                        eval_f=eval_model):
     """"""
     search_spaces = {
-        'RandomForestClassifier': [Real(50, 100, "log-uniform", name='model_size')],
         'MLPClassifier': [Real(50, 100, "log-uniform", name='model_size')]
     }
 
@@ -122,7 +108,8 @@ def get_model_instance(model_class, train_data, valid_data,
         # search best model with gaussian process based
         res_gp = gp_minimize(
             _objective, search_spaces[model_class],
-            n_calls=n_opt_calls, random_state=rnd_state
+            n_calls=n_opt_calls, random_state=rnd_state,
+            verbose=True
         )
         print(res_gp.fun, res_gp.x)
         model_size = res_gp.x[0]
@@ -135,7 +122,7 @@ def get_model_instance(model_class, train_data, valid_data,
 
 def full_factorial_design(
     text_feats=['audio', 'liwc', 'value', 'personality', 'linguistic', 'topic'],
-    models=['LogisticRegression', 'RandomForestClassifier', 'MLPClassifier']):
+    models=['LogisticRegression', 'DecisionTreeClassifier', 'MLPClassifier']):
 
     # 1. models / 2. feature combs
     cases = get_all_comb(text_feats)
