@@ -312,7 +312,7 @@ def instantiate_model(model_class, k=32, lmbda=1, l2=1e-6, n_iters=50,
     elif model_class == 'FM':
         model = FM(k, l2=l2, learn_rate=learn_rate,
                    batch_sz=batch_sz, n_iters=n_iters,
-                   user_gpu=use_gpu)
+                   use_gpu=use_gpu)
 
     elif model_class == 'MostPopular':
         model = MostPopular(Xtr)
