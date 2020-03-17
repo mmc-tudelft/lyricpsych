@@ -297,8 +297,8 @@ def eval_model(model, train_data, test_data,
     return test_scores
 
 
-def instantiate_model(model_class, k=32, lmbda=1, l2=1e-6,
-                      n_iters=50, alpha=10, learn_rate=1e-3, batch_sz=256):
+def instantiate_model(model_class, k=32, lmbda=1, l2=1e-6, n_iters=50,
+                      alpha=10, learn_rate=1e-3, batch_sz=256, use_gpu=True):
     """"""
     k = int(k)  # should be cased to integer
 
@@ -311,7 +311,8 @@ def instantiate_model(model_class, k=32, lmbda=1, l2=1e-6,
 
     elif model_class == 'FM':
         model = FM(k, l2=l2, learn_rate=learn_rate,
-                   batch_sz=batch_sz, n_iters=1)
+                   batch_sz=batch_sz, n_iters=n_iters,
+                   user_gpu=use_gpu)
 
     elif model_class == 'MostPopular':
         model = MostPopular(Xtr)
