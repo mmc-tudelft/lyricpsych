@@ -439,7 +439,7 @@ class FactorizationMachine(nn.Module):
             print('User stopped the training!...')
         finally:
             # update the cached factors for faster inference
-            if keep_best:
+            if do_valid and keep_best:
                 self.load_state_dict(self.best_model)
             self._update_z(feats)
 
