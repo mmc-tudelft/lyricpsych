@@ -56,7 +56,7 @@ class ItemKNN(Recsys):
         super().__init__()
         self.k = k
 
-    def fit(self, user_item, item_feat):
+    def fit(self, user_item, item_feat, verbose=False):
         self.item_profiles_ = item_feat
         self.item_profiles_ /= np.linalg.norm(
             self.item_profiles_, axis=1
@@ -100,7 +100,7 @@ class ItemNeighbor(Recsys):
     def _normalize(item_feat):
         return item_feat / np.linalg.norm(item_feat, axis=1)[:, None]
 
-    def fit(self, user_item, item_feat):
+    def fit(self, user_item, item_feat, verbose=False):
 
         n_users, n_items = user_item.shape
         self.item_profiles_ = self._normalize(item_feat)
@@ -271,7 +271,7 @@ def eval_model(model, train_data, test_data,
     Xvl, Yvl = test_data
 
     # fit the model
-    model.fit(Xtr, Ytr)
+    model.fit(Xtr, Ytr, verbose=True)
     model._update(Yvl)
 
     # prepare the data
@@ -310,8 +310,8 @@ def instantiate_model(model_class, k=32, lmbda=1, l2=1e-6,
         model = WRMFFeat(k, lmbda=lmbda, alpha=alpha, l2=l2)
 
     elif model_class == 'FM':
-        model = FM(k, l2=l2, learn_rate=lr,
-                   batch_sz=batch_sz, n_iters=n_iters)
+        model = FM(k, l2=l2, learn_rate=learn_rate,
+                   batch_sz=batch_sz, n_iters=1)
 
     elif model_class == 'MostPopular':
         model = MostPopular(Xtr)

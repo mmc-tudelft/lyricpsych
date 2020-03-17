@@ -54,7 +54,7 @@ class FactorizationMachine(nn.Module):
     @property
     def device(self):
         return next(self.parameters()).device
-        
+
     def _init_embeddings(self, user_item, user_feature=None, item_feature=None):
         """"""
         # initialize the factors
@@ -80,7 +80,7 @@ class FactorizationMachine(nn.Module):
                 item_feature.shape[1], self.k + 1,
                 sparse=sp.issparse(item_feature)
             )
-        
+
         for key, layer in self.embeddings_.items():
             if self.no_item_factor and key == 'item':
                 layer.weight.data.zero_()
@@ -88,20 +88,20 @@ class FactorizationMachine(nn.Module):
             else:
                 layer.weight.data[:,:-1].normal_(std=self.init)
                 layer.weight.data[:,-1].zero_()
-        
+
     def _init_optimizer(self):
         """
         """
         if not hasattr(self, 'embeddings_'):
             raise ValueError('You should call .fit first!')
-        
+
         params = {'sparse':[], 'dense':[]}
         for lyr in self.embeddings_.children():
             if lyr.sparse:
                 params['sparse'].append(lyr.weight)
             else:
                 params['dense'].append(lyr.weight)
-                
+
         # determine if sparse optimizer needed
         if len(params['sparse']) == 0:
             self.opt = optim.Adam(
@@ -118,7 +118,7 @@ class FactorizationMachine(nn.Module):
                            lr=self.learn_rate,
                            weight_decay=self.l2)
             )
-            
+
     def _retrieve_factors(self, u, i, feats=None):
         """"""
         if not hasattr(self, 'embeddings_'):
@@ -187,7 +187,7 @@ class FactorizationMachine(nn.Module):
             return s
         else:
             raise ValueError('You should change to the .eval() mode first!')
-        
+
     def forward(self, u, i, feats):
         """
         u (torch.LongTensor): user ids
@@ -196,7 +196,7 @@ class FactorizationMachine(nn.Module):
         """
         if not hasattr(self, 'embeddings_'):
             raise ValueError('You should call .fit first!')
-            
+
         w, v = self._retrieve_factors(u, i, feats)
         w_ = w.sum(1)
         v_ = (v.sum(1)**2 - (v**2).sum(1)).sum(-1) * .5
@@ -215,7 +215,7 @@ class FactorizationMachine(nn.Module):
         if self.training:
             # update item z
             vi = self.embeddings_['item'].weight
-            
+
             if 'feat_item' in self.embeddings_:
                 vfi = self.embeddings_['feat_item'].weight
                 zfi = X['item'] @ vfi
@@ -230,7 +230,7 @@ class FactorizationMachine(nn.Module):
                 vfu = self.embeddings_['feat_user'].weight
                 zfu = X['user'][u] @ vfu
                 zfu2 = X['user'][u]**2 @ vfu**2
-            
+
                 zu = (vu + zfu)[:, None]
                 zu2 = (vu**2 + zfu2)[:, None]
             else:
@@ -242,7 +242,7 @@ class FactorizationMachine(nn.Module):
                 zu, zu2 = self.zu[u][:, None], self.zu2[u][:, None]
             else:
                 zu, zu2 = vu[:, None], (vu**2)[:, None]
-        
+
         # forward & compute loss
         w = zi[..., -1] + zu[..., -1]
         v = (zi[..., :-1] + zu[..., :-1])**2
@@ -250,7 +250,7 @@ class FactorizationMachine(nn.Module):
         v = v.sum(-1) * .5
         s = self.w0 + w + v
         return s, [vu]
-    
+
     def _compute_loss(self, s, y, c=None, loss='sgns',
                       aggregate="mean", alpha=1., weights=None):
         """
@@ -282,14 +282,14 @@ class FactorizationMachine(nn.Module):
 
             else:
                 raise ValueError('[ERROR] only support {"sgns", "bpr", "cce", "kl"}')
-            
+
             if aggregate == 'mean':
                 l = l.mean()
             elif aggregate == 'sum':
                 l = l.sum()
             elif aggregate == 'batchmean':
                 l = l.sum(1).mean(0)
-        
+
         else:
             # prepare the confidence matrix
             if c is not None:
@@ -317,13 +317,13 @@ class FactorizationMachine(nn.Module):
         if (weights is not None) and (len(weights) > 0) and (self.l2 > 0):
             # adding L2 regularization term for sparse entries (user/item)
             l += self.l2 * sum([torch.sum(w**2) for w in weights])
-            
+
         return l
 
     def fit(self, user_item, user_feature=None, item_feature=None,
             valid_user_item=None, feature_sparse=False, batch_sz=512,
             n_tests=1000, topk=100, valid_callback=None, verbose=False,
-            n_jobs=4):
+            keep_best=False, n_jobs=4):
         """"""
         # set some variables
         feats = {}
@@ -333,10 +333,10 @@ class FactorizationMachine(nn.Module):
 
         if not self.warm_start:
             self._init_embeddings(user_item, user_feature, item_feature)
-            
+
         if self.target_device != 'cpu':
             self.to(self.target_device)
-            
+
         if user_feature is not None:
             feats['user'] = torch.Tensor(user_feature).to(self.device)
         if item_feature is not None:
@@ -360,6 +360,8 @@ class FactorizationMachine(nn.Module):
         # do the optimization
         c = None
         val_score = 0
+        self.best_val = 0
+        self.best_model = None
         try:
             for _ in range(self.n_iters):
                 with tqdm(total=len(dl), desc=desc_tmp,
@@ -373,7 +375,7 @@ class FactorizationMachine(nn.Module):
                         if self.full_batch:
                             u = rnd_usr[sample:sample + batch_sz]
                             y = user_item[u].copy().tocoo()
-                            
+
                             # for loss weight
                             if (self.alpha is not None) and (self.alpha > 0):
                                 c = y.copy()
@@ -394,7 +396,7 @@ class FactorizationMachine(nn.Module):
                             s, w = self.forward_batch(u, feats)
                         elif self.loss in {'sgns', 'bpr'}:
                             s, w = self.forward(u, i, {'user':xu, 'item':xi})
-                        
+
                         # compute the main loss
                         loss = self._compute_loss(
                             s, y, c, self.loss,
@@ -413,11 +415,10 @@ class FactorizationMachine(nn.Module):
                         elapsed = now - val_timer
                         if do_valid and (elapsed.total_seconds() > 60):
                             val_timer = now
-                            scores = self.validate(
+                            val_score = self.validate(
                                 user_item, valid_user_item, feats,
                                 n_tests, topk, valid_callback
                             )
-                            val_score = np.mean(scores)
                         prog.set_description(
                             '[tloss={:.4f} / vacc={:.4f}]'
                             .format(loss.item(), val_score)
@@ -425,22 +426,23 @@ class FactorizationMachine(nn.Module):
                         prog.update(1)
 
                     if do_valid:
-                        scores = self.validate(
+                        val_score = self.validate(
                             user_item, valid_user_item, feats,
                             n_tests, topk, valid_callback
                         )
-                        val_score = np.mean(scores)
                     prog.set_description(
                         '[tloss={:.4f} / vacc={:.4f}]'
                         .format(iter_loss / len(dl), val_score)
                     )
-                    
+
         except KeyboardInterrupt as e:
             print('User stopped the training!...')
         finally:
             # update the cached factors for faster inference
+            if keep_best:
+                self.load_state_dict(self.best_model)
             self._update_z(feats)
-            
+
     def validate(self, user_item, valid_user_item, feats, n_tests, topk,
                  callback=None):
         """"""
@@ -454,9 +456,15 @@ class FactorizationMachine(nn.Module):
                 self, user_item, valid_user_item, feats,
                 n_tests, topk
             )
-        return scores
 
-    
+        # keep the best morel
+        val_score = np.mean(scores)
+        if val_score > self.best_val:
+            self.best_val = val_score
+            self.best_model = self.state_dict()
+
+        return val_score
+
     def _validate(self, user_item, valid_user_item, feats,
                   n_tests, topk):
         self._update_z(feats)
@@ -473,14 +481,14 @@ class FactorizationMachine(nn.Module):
             scores.append(score)
         self.train()
         return scores
-            
-            
+
+
 class MultipleOptimizer:
     """ Simple wrapper for the multiple optimizer scenario """
     def __init__(self, *op):
         """"""
         self.optimizers = op
-    
+
     def zero_grad(self):
         """"""
         for op in self.optimizers:
@@ -498,7 +506,7 @@ class MultipleOptimizer:
     def load_state_dict(self, state_dict):
         """"""
         return [op.load_state_dict(state) for state in state_dict]
-    
+
 
 class RecFeatDataset(Dataset):
     def __init__(self, user_item, user_feature=None, item_feature=None, n_negs=10):
@@ -519,7 +527,7 @@ class RecFeatDataset(Dataset):
                 pos, user_item.shape[1], n_samp=self.n_negs
             )
             return pos[j0][None], negs
-    
+
     def _preproc(self, u, pos, negs):
         """"""
         u = torch.full((self.n_negs + 1,), u).long()
@@ -529,12 +537,12 @@ class RecFeatDataset(Dataset):
 
     def __len__(self):
         return self.user_item.shape[0]
-    
+
     def __getitem__(self, u_idx):
         pos, negs = self._draw_data(u_idx, self.user_item)
         if pos is None:
             return None, None, None, None, None
-        
+
         u, i, y = self._preproc(u_idx, pos, negs)
         xi = torch.FloatTensor([-1])
         xu = torch.FloatTensor([-1])
