@@ -4,6 +4,7 @@ from itertools import chain, combinations
 from functools import partial
 
 import numpy as np
+import numba as nb
 from scipy import sparse as sp
 
 import gensim
@@ -524,3 +525,21 @@ def get_all_comb(cases, include_null=False):
     if include_null:
         combs.append(None)
     return combs
+
+
+def mat2array(matrix, flatten=False):
+    array = np.array(matrix)
+    if flatten:
+        return array.ravel()
+    else:
+        return array
+
+
+@nb.njit
+def vecmat(vec, mat):
+    # assuming len(vec) == mat.shape[0]
+    out = np.zeros((mat.shape[1],), dtype=mat.dtype)
+    for i in range(len(vec)):
+        for j in range(mat.shape[1]):
+            out[j] += vec[i] * mat[i, j]
+    return out

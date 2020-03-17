@@ -14,7 +14,7 @@ from ..utils import (argpart_sort,
                      load_csr_data,
                      prepare_feature,
                      slice_row_sparse,
-                     densify)
+                     densify, mat2array, vecmat)
 from ..metrics import ndcg
 from .als_feat import ALSFeat
 from .fm import FactorizationMachine
@@ -96,34 +96,41 @@ class ItemNeighbor(Recsys):
         super().__init__()
         self.alpha = alpha
 
+    @staticmethod
+    def _normalize(item_feat):
+        return item_feat / np.linalg.norm(item_feat, axis=1)[:, None]
+
     def fit(self, user_item, item_feat):
-        self.item_profiles_ = item_feat
-        self.item_profiles_ /= np.linalg.norm(
-            self.item_profiles_, axis=1
-        )[:, None]
 
-        user_item_bin = user_item.copy()
-        # user_item_bin.data[:] = 1.
-        user_item_bin.data = user_item_bin.data * self.alpha
+        n_users, n_items = user_item.shape
+        self.item_profiles_ = self._normalize(item_feat)
 
-        user_intensity = np.array(user_item_bin.sum(1).astype(float)).ravel()
-        S = sp.diags(user_intensity**-1)
-        n_items = item_feat.shape[0]
+        # confidence matrix (minus 1)
+        # C = 1 + alpha * R 
+        # Z = C.sum(1)
+        # Z_inv = Z**-1
+        CmI = user_item.copy()
+        CmI.data = CmI.data * self.alpha
 
-        self.user_profiles_ = S @ user_item_bin @ item_feat
+        user_intensity = mat2array(CmI.sum(1), flatten=True).astype(float)
+
+        Z = user_intensity + n_items
+        Z_inv = sp.diags(Z**-1)
+
+        self.user_profiles_ = CmI @ item_feat
         self.user_profiles_ = self.user_profiles_ + item_feat.sum(0)[None]
-        self.user_profiles_ = (
-            self.user_profiles_ / (user_intensity + n_items)[:, None]
-        )
-        # self.user_profiles = self.user_profiles_ / user_intensity[:, None]
+        self.user_profiles_ = Z_inv @ self.user_profiles_
 
     def _update(self, new_item_feat):
-        self.item_profiles_ = np.vstack([self.item_profiles_, new_item_feat])
+        new_item_feat_ = self._normalize(new_item_feat)
+        self.item_profiles_ = np.vstack([self.item_profiles_, new_item_feat_])
 
     def _recommend(self, user, user_item, n, gt=None):
         """
         """
         d = self.user_profiles_[user] @ self.item_profiles_.T
+        # d = vecmat(self.user_profiles_[user], self.item_profiles_.T)
+
         if gt is not None:
             d[gt] = np.inf
 
@@ -157,6 +164,7 @@ class WRMFFeat(Recsys):
 
     def _recommend(self, user, user_item, n, gt=None):
         s = self._model.embeddings_['user'][user] @ self.item_factors_.T
+        # s = vecmat(self._model.embeddings_['user'][user], self.item_factors_.T)
         if gt is not None:
             s[gt] = -np.inf
 
@@ -165,8 +173,8 @@ class WRMFFeat(Recsys):
 
 
 class FM(Recsys):
-    def __init__(self, k, init=0.001, learn_rate=0.001, l2=1e-4, n_iters=100,
-                 use_gpu=False, loss='bce', batch_sz=128, n_jobs=2):
+    def __init__(self, k, init=0.01, learn_rate=0.001, l2=1e-6, n_iters=50,
+                 use_gpu=False, loss='bce', batch_sz=200, n_jobs=2):
         """"""
         self.k = k
         self.init = init
@@ -181,6 +189,7 @@ class FM(Recsys):
         )
 
     def fit(self, user_item, item_feat, verbose=False):
+        """"""
         self._model.fit(user_item, None, item_feat, verbose=verbose,
                         batch_sz=self.batch_sz, n_jobs=self.n_jobs)
 
@@ -288,8 +297,8 @@ def eval_model(model, train_data, test_data,
     return test_scores
 
 
-def instantiate_model(model_class, k=32, lr=1e-4, lmbda=1, l2=1e-4,
-                      n_iters=10, alpha=10, batch_sz=128):
+def instantiate_model(model_class, k=32, lmbda=1, l2=1e-6,
+                      n_iters=50, alpha=10, learn_rate=1e-3, batch_sz=256):
     """"""
     k = int(k)  # should be cased to integer
 
@@ -315,7 +324,7 @@ def instantiate_model(model_class, k=32, lr=1e-4, lmbda=1, l2=1e-4,
 
 def get_model_instance(model_class, train_data, valid_data,
                        n_test_users=5000, topn=100,
-                       n_opt_calls=10, rnd_state=0):
+                       n_opt_calls=50, rnd_state=0):
     """"""
     # hyper param search range
     search_spaces = {
@@ -327,11 +336,11 @@ def get_model_instance(model_class, train_data, valid_data,
             Real(1e+4, 1e+10, "log-uniform", name='lmbda'),
             Real(1e-4, 1, "log-uniform", name='l2')
         ],
-        'FM': [
-            Real(5, 100, name='n_iters'),
-            Real(1e-4, 1e-2, "log-uniform", name='learn_rate'),
-            Real(1e-4, 1, "log-uniform", name='l2')
-        ],
+        # 'FM': [
+        #     Integer(10, 50, name='n_iters'),
+        #     Real(1e-4, 1e-2, "log-uniform", name='learn_rate'),
+        #     Real(1e-8, 1, "log-uniform", name='l2')
+        # ],
     }
     Xtr, Ytr = train_data
     Xvl, Yvl = valid_data
@@ -353,12 +362,11 @@ def get_model_instance(model_class, train_data, valid_data,
             n_calls=n_opt_calls, random_state=rnd_state,
             verbose=True
         )
-        print(res_gp.fun)
-
         best_param = {
             param.name: val for param, val
             in zip(search_spaces[model_class], res_gp['x'])
         }
+        print(res_gp.fun, best_param)
     else:
         best_param = {}
 
