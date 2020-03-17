@@ -96,7 +96,7 @@ class ALS:
 
 class ALSFeat:
     def __init__(self, k, init=0.001, lmbda=1, l2=0.0001, n_iters=15,
-                 alpha=5, eps=0.5, dropout=0.5, dtype='float32'):
+                 alpha=5, eps=0.5, dropout=0., dtype='float32'):
 
         if dtype == 'float32':
             self.f_dtype = np.float32

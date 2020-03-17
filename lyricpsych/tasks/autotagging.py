@@ -10,7 +10,8 @@ from scipy import sparse as sp
 
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
+# from sklearn.tree import DecisionTreeClassifier
+from sklearn.naive_bayes import GaussianNB
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import roc_auc_score
 
@@ -56,8 +57,8 @@ def instantiate_model(model_class, model_size):
         model = OneVsRestClassifier(
             LogisticRegression(solver='lbfgs', max_iter=300)
         )
-    elif model_class == 'DecisionTreeClassifier':
-        model = DecisionTreeClassifier()
+    elif model_class == 'NaiveBayes':
+        model = OneVsRestClassifier(GaussianNB(), n_jobs=-1)
     elif model_class == 'MLPClassifier':
         model = MLPClassifier(
             (model_size,), learning_rate_init=0.001, early_stopping=True,
@@ -65,7 +66,7 @@ def instantiate_model(model_class, model_size):
         )
     else:
         raise ValueError(
-            '[ERROR] only LogisticRegression, DecisionTreeClassifier, ' +
+            '[ERROR] only LogisticRegression, NaiveBayes, ' +
             'MLPClassifier are supported!'
         )
     return model
@@ -78,9 +79,6 @@ def eval_model(model, train_data, valid_data):
 
     # test the model
     p = model.predict_proba(valid_data[0])
-    if isinstance(model, (DecisionTreeClassifier)):
-        p = np.concatenate([p_[:, 1][:, None] for p_ in p], axis=1)
-
     return roc_auc_score(valid_data[1], p, 'samples')  # AUC_t
 
 
@@ -122,7 +120,7 @@ def get_model_instance(model_class, train_data, valid_data,
 
 def full_factorial_design(
     text_feats=['audio', 'liwc', 'value', 'personality', 'linguistic', 'topic'],
-    models=['LogisticRegression', 'DecisionTreeClassifier', 'MLPClassifier']):
+    models=['LogisticRegression', 'NaiveBayes', 'MLPClassifier']):
 
     # 1. models / 2. feature combs
     cases = get_all_comb(text_feats)

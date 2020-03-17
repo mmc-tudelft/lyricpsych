@@ -9,7 +9,7 @@ from scipy import sparse as sp
 
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.naive_bayes import GaussianNB
 # from sklearn.ensemble import RandomForestClassifier  # eat up a lot of memory
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score
@@ -54,9 +54,8 @@ def instantiate_clf(model_class, model_size):
         model = LogisticRegression(max_iter=100,
                                    solver='lbfgs',
                                    multi_class='auto')
-    elif model_class == 'DecisionTreeClassifier':
-        # model = RandomForestClassifier(model_size, n_jobs=-1)
-        model = DecisionTreeClassifier()
+    elif model_class == 'NaiveBayes':
+        model = GaussianNB()
     elif model_class == 'MLPClassifier':
         model = MLPClassifier(
             (model_size,), learning_rate_init=0.001, early_stopping=True,
