@@ -90,10 +90,11 @@ class ItemKNN(Recsys):
 
 
 class ItemNeighbor(Recsys):
-    def __init__(self):
+    def __init__(self, alpha=1):
         """
         """
         super().__init__()
+        self.alpha = alpha
 
     def fit(self, user_item, item_feat):
         self.item_profiles_ = item_feat
@@ -102,11 +103,19 @@ class ItemNeighbor(Recsys):
         )[:, None]
 
         user_item_bin = user_item.copy()
-        user_item_bin.data[:] = 1.
-        user_intensity = sp.diags(
-            np.array(user_item_bin.sum(1).astype(float)).ravel()**-1
+        # user_item_bin.data[:] = 1.
+        user_item_bin.data = user_item_bin.data * self.alpha
+
+        user_intensity = np.array(user_item_bin.sum(1).astype(float)).ravel()
+        S = sp.diags(user_intensity**-1)
+        n_items = item_feat.shape[0]
+
+        self.user_profiles_ = S @ user_item_bin @ item_feat
+        self.user_profiles_ = self.user_profiles_ + item_feat.sum(0)[None]
+        self.user_profiles_ = (
+            self.user_profiles_ / (user_intensity + n_items)[:, None]
         )
-        self.user_profiles_ = user_intensity @ user_item_bin @ item_feat
+        # self.user_profiles = self.user_profiles_ / user_intensity[:, None]
 
     def _update(self, new_item_feat):
         self.item_profiles_ = np.vstack([self.item_profiles_, new_item_feat])
@@ -286,7 +295,7 @@ def instantiate_model(model_class, k=32, lr=1e-4, lmbda=1, l2=1e-4,
 
     # instantiate a model
     if model_class == 'ItemNeighbor':
-        model = ItemNeighbor()
+        model = ItemNeighbor(alpha)
 
     elif model_class == 'WRMFFeat':
         model = WRMFFeat(k, lmbda=lmbda, alpha=alpha, l2=l2)
@@ -305,17 +314,21 @@ def instantiate_model(model_class, k=32, lr=1e-4, lmbda=1, l2=1e-4,
 
 
 def get_model_instance(model_class, train_data, valid_data,
-                       n_test_users=2000, topn=100, n_opt_calls=50, rnd_state=0):
+                       n_test_users=5000, topn=100,
+                       n_opt_calls=10, rnd_state=0):
     """"""
     # hyper param search range
     search_spaces = {
+        'ItemNeighbor': [
+            Real(1e-4, 1e+5, "log-uniform", name='alpha')
+        ],
         'WRMFFeat': [
             Real(1e-7, 1e+1, "log-uniform", name='alpha'),
             Real(1e+4, 1e+10, "log-uniform", name='lmbda'),
             Real(1e-4, 1, "log-uniform", name='l2')
         ],
         'FM': [
-            Real(5, 50, name='n_iters'),
+            Real(5, 100, name='n_iters'),
             Real(1e-4, 1e-2, "log-uniform", name='learn_rate'),
             Real(1e-4, 1, "log-uniform", name='l2')
         ],
@@ -344,7 +357,7 @@ def get_model_instance(model_class, train_data, valid_data,
 
         best_param = {
             param.name: val for param, val
-            in zip(search_space[model_class], res_gp['x'])
+            in zip(search_spaces[model_class], res_gp['x'])
         }
     else:
         best_param = {}
@@ -439,7 +452,9 @@ if __name__ == "__main__":
             # prep test
             X_ = sp.hstack([Xtr, Xvl]).tocsr()
             Y_ = np.vstack([Ytr, Yvl])
-            test = eval_model(model, (X_, Y_), (Xts, Yts))
+            test = eval_model(
+                model, (X_, Y_), (Xts, Yts), n_test_users=10000
+            )
             print(np.mean(test))
 
             # register results
