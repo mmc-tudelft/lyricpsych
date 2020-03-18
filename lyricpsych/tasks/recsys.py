@@ -90,11 +90,12 @@ class ItemKNN(Recsys):
 
 
 class ItemNeighbor(Recsys):
-    def __init__(self, alpha=1):
+    def __init__(self, alpha=1, eps=1e-3):
         """
         """
         super().__init__()
         self.alpha = alpha
+        self.eps = eps
 
     @staticmethod
     def _normalize(item_feat):
@@ -110,15 +111,16 @@ class ItemNeighbor(Recsys):
         # Z = C.sum(1)
         # Z_inv = Z**-1
         CmI = user_item.copy()
-        CmI.data = CmI.data * self.alpha
+        # CmI.data = CmI.data * self.alpha
+        CmI.data = np.log(CmI.data / self.eps + 1)
 
         user_intensity = mat2array(CmI.sum(1), flatten=True).astype(float)
 
         Z = user_intensity + n_items
         Z_inv = sp.diags(Z**-1)
 
-        self.user_profiles_ = CmI @ item_feat
-        self.user_profiles_ = self.user_profiles_ + item_feat.sum(0)[None]
+        self.user_profiles_ = CmI @ self.item_profiles_
+        self.user_profiles_ = self.user_profiles_ + self.item_profiles_.sum(0)[None]
         self.user_profiles_ = Z_inv @ self.user_profiles_
 
     def _update(self, new_item_feat):
@@ -298,13 +300,14 @@ def eval_model(model, train_data, test_data,
 
 
 def instantiate_model(model_class, k=32, lmbda=1, l2=1e-6, n_iters=50,
-                      alpha=10, learn_rate=1e-3, batch_sz=256, use_gpu=True):
+                      alpha=1, eps=1e-1, learn_rate=1e-3, batch_sz=256,
+                      use_gpu=True):
     """"""
     k = int(k)  # should be cased to integer
 
     # instantiate a model
     if model_class == 'ItemNeighbor':
-        model = ItemNeighbor(alpha)
+        model = ItemNeighbor(alpha=1e+6, eps=1e+6)
 
     elif model_class == 'WRMFFeat':
         model = WRMFFeat(k, lmbda=lmbda, alpha=alpha, l2=l2)
@@ -329,9 +332,10 @@ def get_model_instance(model_class, train_data, valid_data,
     """"""
     # hyper param search range
     search_spaces = {
-        'ItemNeighbor': [
-            Real(1e-4, 1e+5, "log-uniform", name='alpha')
-        ],
+        # 'ItemNeighbor': [
+        #     Real(1e-7, 1e+7, "log-uniform", name='alpha'),
+        #     Real(1e-7, 1e+7, "log-uniform", name='eps')
+        # ],
         'WRMFFeat': [
             Real(1e-7, 1e+1, "log-uniform", name='alpha'),
             Real(1e+4, 1e+10, "log-uniform", name='lmbda'),
