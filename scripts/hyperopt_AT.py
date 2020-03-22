@@ -37,7 +37,7 @@ class BaseAutoTagger(object):
 
     def predict(self, song_feature, song_tag):
         pass
-    
+
     def score(self, song_feature, song_tag):
         pass
 
@@ -49,16 +49,16 @@ class MFAutoTagger(BaseAutoTagger):
             k, lmbda=lmbda, l2=l2,
             alpha=alpha, n_iters=n_iters
         )
-    
+
     def fit(self, song_feature, song_tag):
         self._mf.fit(song_tag.T.tocsr(), song_feature)
         U = self._mf.embeddings_['user']
         self._UU = U.T @ U
-        
+
     def predict(self, song_feature, song_tag=None):
         W = self._mf.embeddings_['feat']
         U = self._mf.embeddings_['user']
-        
+
         if song_tag is None:
             song_factor = song_feature @ W
         else:
@@ -72,30 +72,54 @@ class MFAutoTagger(BaseAutoTagger):
                     self._mf.lmbda, self._mf.l2
                 )
         return song_factor @ U.T
-    
+
     def score(self, song_feature, song_tag, seed_song_tag=None,
               metric='auc', average=None, topk=None):
         average = 'samples' if average is None else average
         topk = 10 if topk is None else topk
-        
+
         if metric == 'auc':
             p = self.predict(song_feature)
             y = song_tag.toarray()
             return safe_roc_auc(y, p, average)
-        
+
         else:  # ndcg
             p = self.predict(song_feature, seed_song_tag)
             return compute_ndcg(y, p, seed_song_tag, topk)
 
-        
+
+class MLPAutoTagger(BaseAutoTagger):
+    def __init__(self, k, n_hids, l2):
+        super().__init__()
+        self.k = k
+        self.n_hids = n_hids
+        self.l2 = l2
+
+        self._mlp = MLPClassifier(
+            (k,) * n_hids, alpha=l2, early_stopping=True
+        )
+
+    def fit(self, song_feature, song_tag):
+        self._mlp.fit(song_feature, song_tag)
+
+    def predict(self, song_feature, song_tag=None):
+        return self._mlp.predict(song_feature)
+
+    def score(self, song_feature, song_tag, seed_song_tag=None,
+              average='samples'):
+        p = self._mlp.predict(song_feature)
+        y = song_tag.toarray()
+        return safe_roc_auc(y, p, average)
+
+
 class Optimizer:
     def __init__(self, n_calls=100):
         self.n_calls = n_calls
-        
-    def fit(self, model_class, space, song_feat, song_tag, 
+
+    def fit(self, model_class, space, song_feat, song_tag,
             valid_song_feat, valid_song_tag, valid_seed_song_tag,
             metric='ndcg', random_state=0, verbose=False):
-        
+
         @use_named_args(space)
         def objective(**params):
             model = model_class(**params)
@@ -105,14 +129,14 @@ class Optimizer:
                 metric=metric
             )
             return -s
-            
+
         res = gp_minimize(
             objective, space, n_calls=self.n_calls,
             random_state=random_state, verbose=verbose
-        ) 
+        )
         return res
-    
-    
+
+
 DATASETS = {
     'msd50': 'msd_subset_top50',
     'msd1k': 'msd_subset_top1000',
@@ -153,10 +177,10 @@ def compute_ndcg(y, p, seed_mat, topk=10):
     for i in range(y.shape[0]):
         true, _ = slice_row_sparse(y, i)
         if len(true) == 0: continue
-            
+
         seed, _ = slice_row_sparse(seed_mat, i)
         s = p[i].copy()
-        
+
         if len(seed) > 0: s[seed] = -np.inf
         pred = argpart_sort(s, topk, ascending=False)
         scores.append(ndcg(true, pred, topk))
@@ -238,22 +262,22 @@ def split_data(test_fold, feat, label, folds, splits,
 
 
 if __name__ == "__main__":
-    
+
     # parse the input
     model = MODELS['mf']
     dataset = 'msd1k'
     data_root = '/Users/jaykim/Downloads/datasets/'
     scale = False
-    feat_type = 'mfcc' 
-    split_type = 'nomatch' 
+    feat_type = 'mfcc'
+    split_type = 'nomatch'
     fold = 1
-    valid_fold = 0 
+    valid_fold = 0
     k = 32
     seed = True
     n_seeds = 0
     metric = 'auc' if n_seeds == 0 else 'ndcg'
-    
-    
+
+
     # load the dataset and split (using pre-split data)
     data_loc = DATASETS[dataset]
     data_path = join(data_root, data_loc.split('_')[0], data_loc, 'splits')
@@ -272,7 +296,7 @@ if __name__ == "__main__":
         for split in ['valid', 'test']:
             for n_seed, feat in feats[split].items():
                 feats[split][n_seed] = sclr.transform(feat)
-    
+
     opt = Optimizer(n_calls=10)
     res = opt.fit(
         partial(model, k=k), SEARCH_SPACE[model],
