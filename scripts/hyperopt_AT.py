@@ -16,7 +16,7 @@ import numpy as np
 from scipy import sparse as sp
 import matplotlib.pyplot as plt
 
-from sklearn.neural_network import MLPClassifier
+from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score
 
@@ -106,10 +106,60 @@ class MLPAutoTagger(BaseAutoTagger):
         return self._mlp.predict(song_feature)
 
     def score(self, song_feature, song_tag, seed_song_tag=None,
-              average='samples'):
-        p = self._mlp.predict(song_feature)
+              metric='auc', average='samples'):
+        p = self._mlp.predict_proba(song_feature)
         y = song_tag.toarray()
         return safe_roc_auc(y, p, average)
+    
+    
+class FMAutoTagger(BaseAutoTagger):
+    def __init__(self, k, lr, l2, n_iters, batch_sz=128, use_gpu=False):
+        super().__init__()
+        self.k = k
+        self.lr = lr
+        self.l2 = l2
+        self.n_iters = n_iters
+        self.user_gpu = use_gpu
+        self.batch_sz = batch_sz
+        
+        self._fm = FactorizationMachine(
+            k, init=0.001, n_iters=n_iters, l2=l2, learn_rate=lr,
+            loss='bce', loss_agg='sum', use_gpu=use_gpu
+        )
+    
+    def fit(self, song_feature, song_tag):
+        # fit FM
+        self._fm.fit(song_tag, song_feature,
+                     batch_sz=self.batch_sz, n_jobs=2)
+        self._fm.cpu()
+        self.eval()
+        
+        # register factors for future
+        self.zi, self.zi2 = self._model.zi, self._model.zi2
+        self.zu, self.zu2 = self._model.zu, self._model.zu2
+            
+        # learn the feature -> item factor mapper
+        U = self._fm.embeddings['user'].weight.cpu().data.numpy()
+        self._mlp_v = MLPRegressor((128,), early_stopping=True) 
+        self._mlp_v.fit(song_feature, U[:, :-1])
+        
+        self._mlp_w = MLPRegressor((128,), early_stopping=True) 
+        self._mlp_w.fit(song_feature, U[:, -1])
+        
+    def predict(self, song_feature, song_tag=None):
+        phi = self._fm.embeddings_['feat_user'].weight.data.numpy()
+        
+#         w = self._mlp_w.predict(song_feature)
+#         v = self._mlp_v.predict(song_feature)
+        
+#         zfu = new_feat @ phi
+#         zfu2 = new_feat**2 @ phi**2
+        
+#         zu = v + zfu[..., :-1]
+#         zu2 = v**2 + zfu2[: :-1]
+        
+#         w = w + zfu[:, -1]
+#         v = (zu)
 
 
 class Optimizer:
@@ -150,13 +200,17 @@ SEARCH_SPACE = {
         Real(1e-7, 1e+7, "log-uniform", name='lmbda'),
         Real(1e-7, 1e+7, "log-uniform", name='l2'),
         Real(1e-7, 1e+7, "log-uniform", name='alpha')
+    ],
+    MLPAutoTagger: [
+        Integer(1, 3, name='n_hids'),
+        Real(1e-7, 1, "log-uniform", name='l2')
     ]
 }
 
 MODELS = {
     'mf': MFAutoTagger,
     # 'fm': FactorizationMachine,
-    # 'mlp': MLPClassifier
+    'mlp': MLPAutoTagger
 }
 
 
@@ -261,35 +315,73 @@ def split_data(test_fold, feat, label, folds, splits,
     return feat_cont, seed_cont, label_cont
 
 
+def save_best_param(res, out_root, n_seeds, model, k,
+                    dataset, feat_type, split_type):
+    out_fn = join(
+        out_root,
+        '{model}{k:d}_{dset}_seed{seeds}_{feat}_{split}.pkl'.format(
+            seeds=n_seeds, model=model, k=k,
+            dset=dataset, feat=feat_type, split=split_type
+        )
+    )
+    skopt.dump(res, out_fn, store_objective=False)
+    
+    
+def setup_argparser():
+    # setup argparser
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('data_root', type=str,
+                        help='path where all autotagging data is stored')
+    parser.add_argument('out_root', type=str,
+                        help='path where output is stored')
+    parser.add_argument('model', type=str,
+                        choices={'mf', 'mlp'},
+                        help='target model to be tested')
+    parser.add_argument('dataset', type=str,
+                        choices={'msd50', 'msd1k', 'mgt50', 'mgt188'},
+                        help='type of dataset')
+    parser.add_argument('feature', type=str, choices={'mfcc', 'rand'},
+                        help='type of audio feature')
+    parser.add_argument('fold', type=int, choices=set(range(10)),
+                        help='target fold to be tested')
+    parser.add_argument('k', type=int, choices={32, 64, 128},
+                        help='model size')
+    parser.add_argument('--n-calls', type=int, default=50,
+                        help='number of optimize stages')    
+    parser.add_argument('--split-type', type=str, default='nomatch',
+                        choices={'klmatch', 'nomatch'},
+                        help='split method to be used')
+    parser.add_argument('--valid-fold', type=int, default=None,
+                        choices=set(range(10)),
+                        help='target validation fold to be used')
+    parser.add_argument('--n-seeds', type=int, default=0,
+                        choices={0, 1, 2, 5},
+                        help='set the number of seed tags used for the eval.')
+    parser.add_argument('--sacle', dest='scale', action='store_true')
+    parser.set_defaults(scale=False)
+    args = parser.parse_args()
+    return args
+
+    
 if __name__ == "__main__":
-
     # parse the input
-    model = MODELS['mf']
-    dataset = 'msd1k'
-    data_root = '/Users/jaykim/Downloads/datasets/'
-    scale = False
-    feat_type = 'mfcc'
-    split_type = 'nomatch'
-    fold = 1
-    valid_fold = 0
-    k = 32
-    seed = True
-    n_seeds = 0
-    metric = 'auc' if n_seeds == 0 else 'ndcg'
-
+    args = setup_argparser()
+    model = MODELS[args.model]
+    metric = 'auc' if args.n_seeds == 0 else 'ndcg'
 
     # load the dataset and split (using pre-split data)
-    data_loc = DATASETS[dataset]
-    data_path = join(data_root, data_loc.split('_')[0], data_loc, 'splits')
+    data_loc = DATASETS[args.dataset]
+    data_path = join(args.data_root, data_loc.split('_')[0], data_loc, 'splits')
     raw_labels, raw_feats, folds, splits = load_data(
-        data_path, feat_type, split_type=split_type
+        data_path, args.feature, split_type=args.split_type
     )
     feats, seeds, labels = split_data(
-        fold, raw_feats, raw_labels, folds, splits,
-        valid_fold=valid_fold
+        args.fold, raw_feats, raw_labels, folds, splits,
+        valid_fold=args.valid_fold
     )
 
-    if scale:
+    if args.scale:
         # scale data
         sclr = StandardScaler()
         feats['train'] = sclr.fit_transform(feats['train'])
@@ -299,9 +391,13 @@ if __name__ == "__main__":
 
     opt = Optimizer(n_calls=10)
     res = opt.fit(
-        partial(model, k=k), SEARCH_SPACE[model],
+        partial(model, k=args.k), SEARCH_SPACE[model],
         feats['train'], labels['train'],
-        feats['valid'][n_seeds], labels['valid'][n_seeds],
-        seeds['valid'][n_seeds], metric=metric, verbose=True
+        feats['valid'][args.n_seeds], labels['valid'][args.n_seeds],
+        seeds['valid'][args.n_seeds], metric=metric, verbose=True
+    )
+    save_best_param(
+        res, args.out_root, args.n_seeds, args.model, args.k,
+        args.dataset, args.feature, args.split_type
     )
     
