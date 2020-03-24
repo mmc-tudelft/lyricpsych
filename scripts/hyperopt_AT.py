@@ -68,7 +68,7 @@ class MFAutoTagger(BaseAutoTagger):
             for i in range(song_feature.shape[0]): 
                 ind, val = slice_row_sparse(song_tag, i)
                 song_factor[i] = partial_ALS_feat(
-                    val, ind, U, UU, song_feature[i], W,
+                    val, ind, U, self._UU, song_feature[i], W,
                     self._mf.lmbda, self._mf.l2
                 )
         return song_factor @ U.T
@@ -85,7 +85,7 @@ class MFAutoTagger(BaseAutoTagger):
 
         else:  # ndcg
             p = self.predict(song_feature, seed_song_tag)
-            return compute_ndcg(y, p, seed_song_tag, topk)
+            return compute_ndcg(song_tag, p, seed_song_tag, topk)
 
 
 class MLPAutoTagger(BaseAutoTagger):
@@ -389,7 +389,7 @@ if __name__ == "__main__":
             for n_seed, feat in feats[split].items():
                 feats[split][n_seed] = sclr.transform(feat)
 
-    opt = Optimizer(n_calls=10)
+    opt = Optimizer(n_calls=args.n_calls)
     res = opt.fit(
         partial(model, k=args.k), SEARCH_SPACE[model],
         feats['train'], labels['train'],
