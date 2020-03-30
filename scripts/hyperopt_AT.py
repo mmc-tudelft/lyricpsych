@@ -363,12 +363,9 @@ def setup_argparser():
     args = parser.parse_args()
     return args
 
-    
-if __name__ == "__main__":
-    # parse the input
-    args = setup_argparser()
+
+def prep_data(args, valid_fold=None):
     model = MODELS[args.model]
-    metric = 'auc' if args.n_seeds == 0 else 'ndcg'
 
     # load the dataset and split (using pre-split data)
     data_loc = DATASETS[args.dataset]
@@ -378,7 +375,7 @@ if __name__ == "__main__":
     )
     feats, seeds, labels = split_data(
         args.fold, raw_feats, raw_labels, folds, splits,
-        valid_fold=args.valid_fold
+        valid_fold=valid_fold
     )
 
     if args.scale:
@@ -388,6 +385,15 @@ if __name__ == "__main__":
         for split in ['valid', 'test']:
             for n_seed, feat in feats[split].items():
                 feats[split][n_seed] = sclr.transform(feat)
+
+    return feats, seeds, labels
+
+
+if __name__ == "__main__":
+    # parse the input
+    args = setup_argparser()
+    feats, seeds, labels = prep_data(args, args.valid_fold)
+    metric = 'auc' if args.n_seeds == 0 else 'ndcg'
 
     opt = Optimizer(n_calls=args.n_calls)
     res = opt.fit(
@@ -400,4 +406,3 @@ if __name__ == "__main__":
         res, args.out_root, args.n_seeds, args.model, args.k,
         args.dataset, args.feature, args.split_type
     )
-    
