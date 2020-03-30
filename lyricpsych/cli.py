@@ -1,6 +1,10 @@
 from os.path import join, basename, dirname, splitext, exists
 import argparse
+import logging
 
+import numpy as np
+
+from .feature import TextFeature
 from .pipelines import TextFeatureExtractor
 from .data import Corpus
 
@@ -9,9 +13,10 @@ K = 25
 THRESH = [5, 0.3]
 
 
-def get_argparser():
+def extract():
+    """command line toolchain for feature extraction
     """
-    """
+    # process the arguments
     parser = argparse.ArgumentParser(
         description="Extracts textual feature using various psych inventories"
     )
@@ -38,14 +43,7 @@ def get_argparser():
     parser.add_argument('--inventory', dest='inventory', type=str, default=None,
                         help=('filename contains dictionary contains category-words pair'
                               ' that is used for the target inventory'))
-    return parser.parse_args()
-
-
-def main():
-    """command line toolchain main
-    """
-    # process the arguments
-    args = setup_argparser()
+    args = parser.parse_args()
     flags = {
         'linguistic': args.linguistic,
         'liwc': args.linguistic,
@@ -57,32 +55,39 @@ def main():
     if ext_all:
         flags = {k:True for k in flags.keys()}
 
-    if not exists(args.inventory):
-        raise ValueError('[ERROR] inventory file not found!')
-    elif args.inventory is None:
+    # setup custom inventory
+    if args.inventory is None:
         custom_inven = None
+    elif not exists(args.inventory):
+        raise ValueError('[ERROR] inventory file not found!')
     else:
         custom_inven = json.load(open(args.inventory))
 
-    try:
-        # loading the data 
-        texts = [lines.strip() for line in open(args.text)]
-        ids = list(range(len(texts)))
-        corpus = Corpus(ids, texts, filter_thresh=None,
-                        filt_non_eng=True)
+    # loading the data 
+    texts = [line.strip() for line in open(args.text)]
+    ids = list(range(len(texts)))
+    corpus = Corpus(ids, texts, filter_thresh=None,
+                    filt_non_eng=True)
 
-        # 2. initiate the extractor
-        features = {}
-        extractor = TextFeatureExtractor(args.w2v_fn)
-        if flags['liwc']:
-            features[k] = extractor.liwc(corpus)
+    # 2. initiate the extractor
+    features = {}
+    extractor = TextFeatureExtractor(args.w2v_fn)
 
-        if flags['linguistic']:
-            features[k] = extractor.linguistic_features(corpus)
+    # LINGUISTIC / LIWC feature
+    if flags['liwc']:
+        features['liwc'] = extractor.liwc(corpus)
 
-        corpus.filter_thresh = THRESH
-        corpus._preproc()
+    if flags['linguistic']:
+        features['linguistic'] = extractor.linguistic_features(corpus)
 
+    corpus.filter_thresh = THRESH
+    corpus._preproc()
+
+    # INVENTORY ESTIMATION
+    if extractor.w2v is None:
+        logging.warning('No word2vec model is specified.'
+                        ' inventory estimation is not computed')
+    else:
         if flags['personality']:
             pers_feat, pers_cols = extractor._inventory_scores(
                 corpus, extractor.psych_inventories['personality']
@@ -104,28 +109,25 @@ def main():
                 corpus, custom_inven
             )
 
-        if flags['topic']:
-            features['topic'] = extractor.topic_distributions(corpus, k=K)
+    if flags['topic']:
+        features['topic'] = extractor.topic_distributions(corpus, k=K)
 
-        out_fn = join(
-            args.out_path,
-            splitext(basename(args.text))[0] + '_feat.csv'
-        )
+    out_fn = join(
+        args.out_path,
+        splitext(basename(args.text))[0] + '_feat.csv'
+    )
 
-        ids = list(features.values())[0].ids  # anchor
-        # first aggregate the data
-        agg_feature = []
-        agg_feat_cols = []
-        for key, feat in features.items():
-            x = feat.features[[feat.inv_ids[i] for i in ids]]
-            agg_feature.append(x)
-            agg_feat_cols.extend(feat.columns)
-        agg_feature = np.hstack(agg_feature)
+    ids = list(features.values())[0].ids  # anchor
+    # first aggregate the data
+    agg_feature = []
+    agg_feat_cols = []
+    for key, feat in features.items():
+        x = feat.features[[feat.inv_ids[i] for i in ids]]
+        agg_feature.append(x)
+        agg_feat_cols.extend([key + '_' + col for col in feat.columns])
+    agg_feature = np.hstack(agg_feature)
 
-        with open(out_fn, 'w') as f:
-            f.write(','.join(agg_feat_cols) + '\n')
-            for row in agg_feature:
-                f.write(','.join(['{:.8f}'.format(y) for y in row]) + '\n')
-
-    except Exception as e:
-        print(e)
+    with open(out_fn, 'w') as f:
+        f.write(','.join(agg_feat_cols) + '\n')
+        for row in agg_feature:
+            f.write(','.join(['{:.8f}'.format(y) for y in row]) + '\n')

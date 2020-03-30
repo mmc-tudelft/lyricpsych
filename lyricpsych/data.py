@@ -12,10 +12,6 @@ from sklearn.feature_extraction.text import TfidfTransformer
 from .files import hexaco, personality_adj, value_words, liwc_dict, mxm2msd
 from .utils import preprocessing, filter_english_plsa
 
-INVENTORIES = {
-    'hexaco': hexaco()
-}
-
 
 class Corpus:
     def __init__(self, ids, texts, filt_non_eng=True,
@@ -174,22 +170,6 @@ def load_lyrics_db(path, fmt='json', verbose=True):
         )
     ]
     return [(tid, lyrics) for tid, lyrics in db if lyrics != '']
-
-
-def load_inventory(inventory='hexaco'):
-    """ Load psych inventory to be used as target
-
-    Inputs:
-        inventory (string): type of inventory to be loaded {'hexaco', 'value'}
-
-    Outputs:
-        list of tuple: inventory data
-    """
-    if inventory not in INVENTORIES:
-        raise ValueError('[ERROR] {} is not supported!'.format(inventory))
-
-    y = json.load(open(INVENTORIES[inventory]))['inventory']
-    return list(y.items())
 
 
 def load_personality_adj():

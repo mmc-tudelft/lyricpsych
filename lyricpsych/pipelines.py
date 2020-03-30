@@ -5,6 +5,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import gensim
+import gensim.downloader
 import h5py
 
 from scipy.spatial.distance import cdist
@@ -29,24 +30,14 @@ from .feature import TextFeature, TopicFeature
 
 
 class TextFeatureExtractor:
-    def __init__(self, w2v_fn=None, w2v_type='word2vec'):
+    def __init__(self, gensim_w2v=None):
         """
         """
         # this can take minutes if the model if big one
-        if w2v_fn is None:
+        if gensim_w2v is None:
             self.w2v = None
         else:
-            self.w2v = (
-                gensim.models.KeyedVectors
-                .load_word2vec_format(
-                    w2v_fn,
-                    binary=(
-                        True
-                        if w2v_type == 'word2vec'
-                        else False # {'glove', 'word2vec'}
-                    )
-                )
-            )
+            self.w2v = gensim.downloader.load(gensim_w2v)
 
         self.psych_inventories = {
             'personality': load_personality_adj(),
@@ -284,7 +275,7 @@ def _compute_linguistic_features(words_corpus, artists=None,
         return feats
 
 
-def extract(mxm_dir, w2v_fn=None, audio_h5=None,
+def extract(mxm_dir, w2v=None, audio_h5=None,
             filt_non_eng=True, filter_thresh=[5, .3],
             num_topics=25,
             config={
@@ -296,12 +287,12 @@ def extract(mxm_dir, w2v_fn=None, audio_h5=None,
 
     Inputs:
         mxm_dir (string): path where all lyrics data stored
-        w2v_fn (string or None): path to the word2vec model
+        w2v (string or None): codename of the gensim word2vec model
         audio_h5 (string or None): filename to the audio feature (if any)
         filt_non_eng (bool): indicates whether filter non-English lyrics
         filter_thresh (list of float): filtering threshold for rare / popular words
         num_topics (int): number of topics to be extracted
-        config (dict[string] -> bool): extraction configuration 
+        config (dict[string] -> bool): extraction configuration
 
     Returns:
         dict[string] -> TextFeature: extracted text feature
@@ -314,7 +305,7 @@ def extract(mxm_dir, w2v_fn=None, audio_h5=None,
                     filt_non_eng=filt_non_eng)
 
     # 2. initiate the extractor
-    extractor = TextFeatureExtractor(w2v_fn)
+    extractor = TextFeatureExtractor(w2v)
 
     # 3. extract the feature
     features = {}
@@ -426,8 +417,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('mxm_dir', type=str,
                         help='path where all lyrics are stored')
-    parser.add_argument('w2v_fn', type=str,
-                        help='filename to the word2vec pretrained model (for gensim)')
+    parser.add_argument('w2v', type=str,
+                        help='codename to the word2vec pretrained model (for gensim)')
     parser.add_argument('out_fn', type=str,
                         help='path to dump processed h5 file')
     parser.add_argument('--audio-h5', default=None,
@@ -442,6 +433,6 @@ if __name__ == "__main__":
 
     # run
     save(
-        extract(args.mxm_dir, args.w2v_fn, args.audio_h5, args.is_eng),
+        extract(args.mxm_dir, args.w2v, args.audio_h5, args.is_eng),
         args.out_fn
     )

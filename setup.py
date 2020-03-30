@@ -2,7 +2,7 @@ from setuptools import setup
 
 
 def readme():
-    with open('README.rst') as f:
+    with open('README.md') as f:
         return f.read()
 
 def requirements():
@@ -30,7 +30,7 @@ setup(name='lyricpsych',
       test_suite='nose.collector',
       tests_require=['nose', 'nose-cover3'],
       entry_points={
-          'console_scripts': ['lyricpsych-extract=lyricpsych.command_line:main'],
+          'console_scripts': ['lyricpsych-extract=lyricpsych.cli:extract'],
       },
       include_package_data=True,
       zip_safe=False)
