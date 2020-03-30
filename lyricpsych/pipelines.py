@@ -47,26 +47,26 @@ class TextFeatureExtractor:
                     )
                 )
             )
-            
+
         self.psych_inventories = {
             'personality': load_personality_adj(),
             'value': load_value_words()
         }
         self._init_liwc()
-                
+
     @staticmethod
     def _build_liwc_trie(liwc_dict):
         """
         Build a character-trie from the plain string value -> key map
-        
+
         it is adopted from the `https://github.com/chbrown/liwc-python/blob/master/liwc/trie.py
-        
+
         Inputs:
             dict[str] -> str: word -> cat map
-            
+
         Outputs:
             dict[char] -> dict: trie for LIWC
-        """        
+        """
         trie = {}
         for word, cat in liwc_dict.items():
             cursor = trie
@@ -79,12 +79,12 @@ class TextFeatureExtractor:
                 cursor = cursor[char]
             cursor["$"] = cat
         return trie
-    
+
     @staticmethod
     def _search_trie(trie, token, token_i=0):
         """
         Search the given character-trie for paths match the `token` string
-        
+
         it is adopted from the `https://github.com/chbrown/liwc-python/blob/master/liwc/trie.py
         """
         if "*" in trie:
@@ -101,23 +101,23 @@ class TextFeatureExtractor:
         return []
 
     def _init_liwc(self):
-        """""" 
+        """"""
         self.liwc_dict = {}
         self._raw_liwc_dict = load_liwc_dict()
-        self._liwc_cat_map = {k:i for i, k 
+        self._liwc_cat_map = {k:i for i, k
                               in enumerate(self._raw_liwc_dict.keys())}
         for cat, words in self._raw_liwc_dict.items():
             for word in words:
                 if word not in self.liwc_dict:
                     self.liwc_dict[word] = []
                 self.liwc_dict[word].append(cat)
-                
+
         # learn the trie
         self._liwc_trie = (
             TextFeatureExtractor
             ._build_liwc_trie(self.liwc_dict)
         )
-    
+
     def _inventory_scores(self, corpus, inventory):
         """
         """
@@ -127,17 +127,17 @@ class TextFeatureExtractor:
             pers_adj[cat] = [_process_word(w) for w in words]
         feature, cols = _compute_coherence(self.w2v, corpus.ngram_corpus, pers_adj)
         return feature, cols
-    
+
     def psych_scores(self, corpus):
         """
         """
-        scores = []
+        scores = {}
         for key, adjs in self.psych_inventories.items():
             s, c = self._inventory_scores(corpus, adjs)
-            feat = TextFeautre(key, corpus.ids, s, c)
-            scores.append(feat)
+            feat = TextFeature(key, corpus.ids, s, c)
+            scores[key] = feat
         return scores
-    
+
     def liwc(self, corpus):
         """
         TODO: deal with special cases (i.e. `(i) like*`)
@@ -150,7 +150,7 @@ class TextFeatureExtractor:
                 for word in words
             ]))
             feats.append(dict(cnt))
-            
+
         # convert to the dataframe -> text feature
         feats = pd.DataFrame(feats).fillna(0.)
         feats = TextFeature('LIWC', corpus.ids, feats.values, feats.columns)
@@ -164,23 +164,23 @@ class TextFeatureExtractor:
         feature = _compute_linguistic_features(
             corpus.ngram_corpus, artist_song_map, verbose
         )
-        
+
         return TextFeature(
             'linguistic', corpus.ids, feature.values, feature.columns
         )
-    
+
     def topic_distributions(self, corpus, k=25):
         """
         """
         # run plsa
         plsa = PLSA(k, 30)
         plsa.fit(corpus.doc_term)
-        
+
         return TopicFeature(
             k, corpus.ids, plsa.doc_topic, plsa.topic_term, 
             corpus.id2word.token2id
         )
-    
+
 #     def get_deep_features(self, corpus):
 #         """
 #         """
@@ -190,14 +190,14 @@ class TextFeatureExtractor:
 def _compute_coherence(word2vec, words_corpus, target_words,
                        show_progress=False):
     """ Compute the coherence score between given texts and the target inventory
-    
+
     Inputs:
         word2vec (gensim.models.Word2Vec or dict): key-value container that holds
                                                    word-vector association
         word_corpus (list of list of string): corpus to be compared
         target_words (dict[string] -> list of string): target words from each inventory
         show_progress (bool): indicates verbosity of the process
-        
+
     Returns:
         np.ndarray: computed coherence score (#obs, #target_words)
     """
@@ -211,7 +211,7 @@ def _compute_coherence(word2vec, words_corpus, target_words,
         id_map = {w:i for i, w in enumerate(uniques)}
         embs = np.array([word2vec[w] for w in uniques])
         return uniques, id_map, embs
-    
+
     unique_words, words_hash, uniq_wv = preproc(words_corpus)
     unique_targs, targs_hash, uniq_tv = preproc(target_words.values())
     X = cdist(uniq_wv, uniq_tv, metric='cosine')
@@ -223,7 +223,7 @@ def _compute_coherence(word2vec, words_corpus, target_words,
         targ_ids = [targs_hash[t] for t in targs if t in targs_hash]
         S[:, len(cats)] = X[:, targ_ids].mean(1)
         cats.append(cat)
-    
+
     # 3. compute scores per docs and all the target words
     coherences = np.zeros((len(words_corpus), len(cats)))
     with tqdm(total=len(words_corpus),
@@ -240,20 +240,20 @@ def _compute_coherence(word2vec, words_corpus, target_words,
 def _compute_linguistic_features(words_corpus, artists=None,
                                  show_progress=True, extreme_thresh=[2, 0.75]):
     """ Compute all the linguistic features
-    
+
     Inputs:
-        words_corpus (list of list of string): 
-    
+        words_corpus (list of list of string):
+
     """
     # pre-compute some entities
     doc_freq = get_document_frequency(words_corpus)
     rare_words, common_words = get_extreme_words(doc_freq, extreme_thresh)
-    
+
     # compute all features
     feats = []
     with tqdm(total=len(words_corpus), ncols=80,
               disable=not show_progress) as p:
-        
+
         for i, words in enumerate(words_corpus):
             feat = {}
             feat['num_words'] = N = _num_words(words)
@@ -275,15 +275,15 @@ def _compute_linguistic_features(words_corpus, artists=None,
             feats.append(feat)
             p.update(1)
     feats = pd.DataFrame(feats)
-    
+
     # if map is given, aggregate (mean) the result by the artist
     if artists is not None:
         feats['artist'] = artists
         return feats.dropna(axis=0).groupby('artist').mean()
     else:
         return feats
-    
-    
+
+
 def extract(mxm_dir, w2v_fn=None, audio_h5=None,
             filt_non_eng=True, filter_thresh=[5, .3],
             num_topics=25,
@@ -293,7 +293,7 @@ def extract(mxm_dir, w2v_fn=None, audio_h5=None,
                 'topic': True, 'deep': False
             }):
     """ Extract text related features from lyrics database
-    
+
     Inputs:
         mxm_dir (string): path where all lyrics data stored
         w2v_fn (string or None): path to the word2vec model
@@ -302,7 +302,7 @@ def extract(mxm_dir, w2v_fn=None, audio_h5=None,
         filter_thresh (list of float): filtering threshold for rare / popular words
         num_topics (int): number of topics to be extracted
         config (dict[string] -> bool): extraction configuration 
-    
+
     Returns:
         dict[string] -> TextFeature: extracted text feature
     """
@@ -312,23 +312,23 @@ def extract(mxm_dir, w2v_fn=None, audio_h5=None,
     ids, texts = tuple(zip(*data))
     corpus = Corpus(ids, texts, filter_thresh=None,
                     filt_non_eng=filt_non_eng)
-    
+
     # 2. initiate the extractor
     extractor = TextFeatureExtractor(w2v_fn)
-    
+
     # 3. extract the feature
     features = {}
-    
+
     if config['liwc']:
         features['liwc'] = extractor.liwc(corpus)
-    
+
     if config['linguistic']:
         features['linguistic'] = extractor.linguistic_features(corpus)
-    
+
     # redo the preprocessing with the thresholds
     corpus.filter_thresh = filter_thresh
     corpus._preproc()
-    
+
     if config['personality']:
         pers_feat, pers_cols = extractor._inventory_scores(
             corpus, extractor.psych_inventories['personality']
@@ -336,7 +336,7 @@ def extract(mxm_dir, w2v_fn=None, audio_h5=None,
         features['personality'] = TextFeature(
             'personality', corpus.ids, pers_feat, pers_cols
         )
-    
+
     if config['value']:
         val_feat, val_cols = extractor._inventory_scores(
             corpus, extractor.psych_inventories['value']
@@ -344,13 +344,13 @@ def extract(mxm_dir, w2v_fn=None, audio_h5=None,
         features['value'] = TextFeature(
             'value', corpus.ids, val_feat, val_cols
         )
-    
+
     if config['topic']:
         features['topic'] = extractor.topic_distributions(corpus, k=num_topics)
-        
+
     if config['deep']:
         pass
-    
+
     if audio_h5:
         # TODO: this part should be moved to MFCC feature extraction
         #       and stored in the feature file for better integrity
@@ -378,20 +378,20 @@ def extract(mxm_dir, w2v_fn=None, audio_h5=None,
             features['audio'] = TextFeature(
                 'mfcc', corpus.ids, audio_feat, audio_feat_cols
             )
-    
+
     return features
-    
-    
+
+
 def save(features, out_fn):
     """ Save extracted feature to the disk in HDF format
-    
+
     Inputs:
         features (dict[string] -> TextFeature): extracted features
         out_fn (string): filename to dump the extracted features
     """
     if len(features) == 0:
         raise ValueError('[ERROR] No features found!')
-        
+
     ids = list(features.values())[0].ids  # anchor
     with h5py.File(out_fn, 'w') as hf:
         hf.create_group('features')
@@ -403,7 +403,7 @@ def save(features, out_fn):
                 key + '_cols',
                 data=np.array(feat.columns, dtype=h5py.special_dtype(vlen=str))
             )
-            
+
             if isinstance(feat, TopicFeature):
                 id2token = {token:i for i, token in feat.id2word.items()}
                 hf['features'].create_dataset(
@@ -419,8 +419,8 @@ def save(features, out_fn):
         hf['features'].create_dataset(
             'ids', data=np.array(ids, dtype=h5py.special_dtype(vlen=str))
         )
-        
-        
+
+
 if __name__ == "__main__":
     # setup argparser
     parser = argparse.ArgumentParser()
@@ -436,10 +436,10 @@ if __name__ == "__main__":
     parser.add_argument('--eng-filt', dest='is_eng', action='store_true')
     # which is not in this case.
     parser.add_argument('--no-eng-filt', dest='is_eng', action='store_false')
-    
+
     parser.set_defaults(is_eng=True)
     args = parser.parse_args()
-    
+
     # run
     save(
         extract(args.mxm_dir, args.w2v_fn, args.audio_h5, args.is_eng),

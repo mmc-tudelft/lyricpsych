@@ -166,7 +166,7 @@ def preprocessing(data, unit='unigram',
 
 
 def filter_english_plsa(dataset, k=20, thresh=15, top_k_words=50,
-                        n_iter=1, verbose=False):
+                        n_iter=1, preproc=True, verbose=False):
     """ Filter out non-english entries using topic-modeling
 
     Inputs:
@@ -176,10 +176,13 @@ def filter_english_plsa(dataset, k=20, thresh=15, top_k_words=50,
                       if the number of non-english words larger than thresh
         top_k_words (int): number of top-k words for filtering
         n_iter (int): number of iteration of this procedure
+        preproc (bool): determine whether filtering the extreme words or not
         verbose (bool): verbosity. If True, compute total non-englishness every epoch
     """
     # pre-process the data
-    texts, corpus, id2word, X = preprocessing([r[1] for r in dataset])
+    texts, corpus, id2word, X = preprocessing(
+        [r[1] for r in dataset], doc_frq_filt=[5, 0.8] if preproc else None
+    )
 
     for j in range(n_iter):
 
@@ -211,7 +214,11 @@ def filter_english_plsa(dataset, k=20, thresh=15, top_k_words=50,
                 blacklist.append(np.where(phi.argmax(1) == topic)[0])
 
         # get the final list to be filtered out
-        blacklist = set(np.concatenate(blacklist))
+        if len(blacklist) > 0:
+            blacklist = np.concatenate(blacklist)
+            blacklist = set(blacklist)
+        else:
+            break
 
         # filter out
         dataset = [d for i, d in enumerate(dataset) if i not in blacklist]
@@ -289,6 +296,7 @@ def split_docs(X, train_ratio=0.8, keep_format=False, return_idx=True):
         return output + (train_idx, test_idx)
     else:
         return output
+
 
 def load_csr_data(h5py_fn, row='users', col='items'):
     """ Load recsys data stored in hdf format

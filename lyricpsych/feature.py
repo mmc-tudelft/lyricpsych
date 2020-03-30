@@ -7,10 +7,10 @@ class TextFeature:
         }
         self.features = features
         self.columns = columns
-        
+
     def __str__(self):
         return self.name
-    
+
 
 class TopicFeature(TextFeature):
     def __init__(self, k, ids, doc_topic, topic_term, id2word):
