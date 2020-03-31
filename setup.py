@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 
 def readme():
@@ -25,7 +25,7 @@ setup(name='lyricpsych',
       author='Jaehun Kim',
       author_email='j.h.kim@tudelft.nl',
       license='MIT',
-      packages=['lyricpsych'],
+      packages=find_packages('.'),
       install_requires=requirements(),
       test_suite='nose.collector',
       tests_require=['nose', 'nose-cover3'],
@@ -33,7 +33,7 @@ setup(name='lyricpsych',
           'console_scripts': ['lyricpsych-extract=lyricpsych.cli:extract'],
       },
       pakcage_data={
-          "":[
+          "lyricpsych":[
               "data/personality_adjectives.json",
               "data/value_inventory_Wilson18.json"
           ]
