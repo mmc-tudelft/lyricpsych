@@ -32,7 +32,7 @@ setup(name='lyricpsych',
       entry_points={
           'console_scripts': ['lyricpsych-extract=lyricpsych.cli:extract'],
       },
-      pakcage_data={
+      package_data={
           "lyricpsych":[
               "data/personality_adjectives.json",
               "data/value_inventory_Wilson18.json"
