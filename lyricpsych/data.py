@@ -9,7 +9,7 @@ from scipy import sparse as sp
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfTransformer
 
-from .files import hexaco, personality_adj, value_words, liwc_dict, mxm2msd
+from .files import personality_adj, value_words, liwc_dict, mxm2msd
 from .utils import preprocessing, filter_english_plsa
 
 
@@ -196,4 +196,8 @@ def load_liwc_dict():
     Returns:
         dict[string] -> list of strings: value words
     """
-    return json.load(open(liwc_dict()), object_pairs_hook=OrderedDict)
+    liwc_fn = liwc_dict()
+    if liwc_fn is None:
+        return None
+
+    return json.load(open(liwc_fn), object_pairs_hook=OrderedDict)

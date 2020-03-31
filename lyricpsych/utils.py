@@ -11,8 +11,8 @@ import gensim
 from gensim import corpora
 
 import nltk
-from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
 from nltk.util import ngrams
 
 from sklearn.decomposition import PCA
@@ -23,6 +23,7 @@ import h5py
 
 from tqdm import tqdm
 
+from .feature import TopicFeature
 from .topic_model import PLSA
 from .files import mxm2msd as mxm2msd_fn
 
@@ -551,3 +552,67 @@ def vecmat(vec, mat):
         for j in range(mat.shape[1]):
             out[j] += vec[i] * mat[i, j]
     return out
+
+
+def save_feature_h5(features, out_fn):
+    """ Save extracted feature to the disk in HDF format
+
+    Inputs:
+        features (dict[string] -> TextFeature): extracted features
+        out_fn (string): filename to dump the extracted features
+    """
+    if len(features) == 0:
+        raise ValueError('[ERROR] No features found!')
+
+    ids = list(features.values())[0].ids  # anchor
+    with h5py.File(out_fn, 'w') as hf:
+        hf.create_group('features')
+        for key, feat in features.items():
+            hf['features'].create_dataset(
+                key, data=feat.features[[feat.inv_ids[i] for i in ids]]
+            )
+            hf['features'].create_dataset(
+                key + '_cols',
+                data=np.array(feat.columns, dtype=h5py.special_dtype(vlen=str))
+            )
+
+            if isinstance(feat, TopicFeature):
+                id2token = {token:i for i, token in feat.id2word.items()}
+                hf['features'].create_dataset(
+                    'topic_terms', data=feat.topic_terms
+                )
+                hf['features'].create_dataset(
+                    'id2word',
+                    data=np.array(
+                        [id2token[i] for i in range(len(id2token))],
+                        dtype=h5py.special_dtype(vlen=str)
+                    )
+                )
+        hf['features'].create_dataset(
+            'ids', data=np.array(ids, dtype=h5py.special_dtype(vlen=str))
+        )
+
+
+def save_feature_csv(features, out_fn, delim=','):
+    """ Save extracted feature to the disk in csv format
+
+    Inputs:
+        features (dict[string] -> TextFeature): extracted features
+        out_fn (string): filename to dump the extracted features
+        delim (string): delimiter for the separation
+    """
+    # aggregation process
+    ids = list(features.values())[0].ids  # anchor
+    # first aggregate the data
+    agg_feature = []
+    agg_feat_cols = []
+    for key, feat in features.items():
+        x = feat.features[[feat.inv_ids[i] for i in ids]]
+        agg_feature.append(x)
+        agg_feat_cols.extend([key + '_' + col for col in feat.columns])
+    agg_feature = np.hstack(agg_feature)
+
+    with open(out_fn, 'w') as f:
+        f.write(delim.join(agg_feat_cols) + '\n')
+        for row in agg_feature:
+            f.write(delim.join(['{:.8f}'.format(y) for y in row]) + '\n')

@@ -6,16 +6,24 @@ import numpy as np
 
 from .feature import TextFeature
 from .pipelines import TextFeatureExtractor
+from .pipelines import extract as _extract
 from .data import Corpus
+from .utils import save_feature_h5, save_feature_csv
 
 
 K = 25
 THRESH = [5, 0.3]
+EXTENSIONS = {
+    'csv': '.csv',
+    'hdf5': '.h5'
+}
+SAVE_FN = {
+    'csv': save_feature_csv,
+    'hdf5': save_feature_h5
+}
 
 
-def extract():
-    """command line toolchain for feature extraction
-    """
+def extract_argparse():
     # process the arguments
     parser = argparse.ArgumentParser(
         description="Extracts textual feature using various psych inventories"
@@ -25,8 +33,11 @@ def extract():
     parser.add_argument('out_path', type=str,
                         help='path where the output (.csv) is stored')
 
-    parser.add_argument('--w2v-fn', default=None, type=str,
-                        help='path where the gensim w2v model is stored')
+    parser.add_argument('--w2v', default=None, type=str,
+                        help='name of the gensim w2v model')
+    parser.add_argument('--format', default='csv', type=str,
+                        choices=set(EXTENSIONS),
+                        help='file format to be saved')
 
     # most of the features below should be going to be separated
     # as the subcommand, to handle each of hyper paramters more elegantly
@@ -43,13 +54,20 @@ def extract():
     parser.add_argument('--inventory', dest='inventory', type=str, default=None,
                         help=('filename contains dictionary contains category-words pair'
                               ' that is used for the target inventory'))
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def extract():
+    """command line toolchain for feature extraction
+    """
+    args = extract_argparse()
     flags = {
         'linguistic': args.linguistic,
         'liwc': args.linguistic,
         'value': args.value,
         'personality': args.value,
-        'topic': args.topic
+        'topic': args.topic,
+        'deep': False
     }
     ext_all = False if any([v for v in flags.values()]) else True
     if ext_all:
@@ -63,71 +81,24 @@ def extract():
     else:
         custom_inven = json.load(open(args.inventory))
 
-    # loading the data 
+    # 1. loading the data 
     texts = [line.strip() for line in open(args.text)]
     ids = list(range(len(texts)))
     corpus = Corpus(ids, texts, filter_thresh=None,
                     filt_non_eng=True)
 
     # 2. initiate the extractor
-    features = {}
-    extractor = TextFeatureExtractor(args.w2v_fn)
+    extractor = TextFeatureExtractor(args.w2v)
+    if custom_inven is not None:
+        extractor.psych_inventories['inventory'] = custom_inven
+        flags['inventory'] = True
 
-    # LINGUISTIC / LIWC feature
-    if flags['liwc']:
-        features['liwc'] = extractor.liwc(corpus)
+    # 3. run the extraction
+    features = _extract(corpus, extractor, config=flags)
 
-    if flags['linguistic']:
-        features['linguistic'] = extractor.linguistic_features(corpus)
-
-    corpus.filter_thresh = THRESH
-    corpus._preproc()
-
-    # INVENTORY ESTIMATION
-    if extractor.w2v is None:
-        logging.warning('No word2vec model is specified.'
-                        ' inventory estimation is not computed')
-    else:
-        if flags['personality']:
-            pers_feat, pers_cols = extractor._inventory_scores(
-                corpus, extractor.psych_inventories['personality']
-            )
-            features['personality'] = TextFeature(
-                'personality', corpus.ids, pers_feat, pers_cols
-            )
-
-        if flags['value']:
-            val_feat, val_cols = extractor._inventory_scores(
-                corpus, extractor.psych_inventories['value']
-            )
-            features['value'] = TextFeature(
-                'value', corpus.ids, val_feat, val_cols
-            )
-
-        if custom_inven is not None:
-            features['inventory'] = extractor._inventory_scores(
-                corpus, custom_inven
-            )
-
-    if flags['topic']:
-        features['topic'] = extractor.topic_distributions(corpus, k=K)
-
+    # 5. save the file to the disk
     out_fn = join(
         args.out_path,
-        splitext(basename(args.text))[0] + '_feat.csv'
+        splitext(basename(args.text))[0] + '_feat' + EXTENSIONS[args.format]
     )
-
-    ids = list(features.values())[0].ids  # anchor
-    # first aggregate the data
-    agg_feature = []
-    agg_feat_cols = []
-    for key, feat in features.items():
-        x = feat.features[[feat.inv_ids[i] for i in ids]]
-        agg_feature.append(x)
-        agg_feat_cols.extend([key + '_' + col for col in feat.columns])
-    agg_feature = np.hstack(agg_feature)
-
-    with open(out_fn, 'w') as f:
-        f.write(','.join(agg_feat_cols) + '\n')
-        for row in agg_feature:
-            f.write(','.join(['{:.8f}'.format(y) for y in row]) + '\n')
+    SAVE_FN[args.format](features, out_fn)
