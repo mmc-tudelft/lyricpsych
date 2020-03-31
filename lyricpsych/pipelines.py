@@ -292,10 +292,9 @@ def _compute_linguistic_features(words_corpus, show_progress=True,
 
 def extract(corpus, extractor, filt_non_eng=True,
             filter_thresh=[5, .3], num_topics=25,
-            config={
-                'liwc': True, 'linguistic': True,
-                'personality': True, 'value': True,
-                'topic': True, 'deep': False
+            features={
+                'liwc', 'linguistic', 'personality',
+                'value', 'topic'
             }):
     """ Extract text related features from lyrics database
 
@@ -305,19 +304,19 @@ def extract(corpus, extractor, filt_non_eng=True,
         filt_non_eng (bool): indicates whether filter non-English lyrics
         filter_thresh (list of float): filtering threshold for rare / popular words
         num_topics (int): number of topics to be extracted
-        config (dict[string] -> bool): extraction configuration
+        config (set of string): extraction configuration
 
     Returns:
         dict[string] -> TextFeature: extracted text feature
     """
     # extract the feature
-    features = {}
+    output = {}
 
-    if config['liwc'] and extractor.is_liwc:
-        features['liwc'] = extractor.liwc(corpus)
+    if 'liwc' in features and extractor.is_liwc:
+        output['liwc'] = extractor.liwc(corpus)
 
-    if config['linguistic']:
-        features['linguistic'] = extractor.linguistic_features(corpus)
+    if 'linguistic' in features:
+        output['linguistic'] = extractor.linguistic_features(corpus)
 
     # redo the preprocessing with the thresholds
     corpus.filter_thresh = filter_thresh
@@ -327,16 +326,17 @@ def extract(corpus, extractor, filt_non_eng=True,
         logging.warning('No word2vec model is specified.'
                         ' inventory estimation is not computed')
     else:
-        inven_estimates = extractor.psych_scores(corpus)
-        features.update(inven_estimates)
+        for key in ['personality', 'value', 'inventory']:
+            if key in features:
+                s, c = extractor._inventory_scores(
+                    corpus, extractor.psych_inventories[key]
+                )
+                output[key] = TextFeature(key, corpus.ids, s, c)
 
-    if config['topic']:
-        features['topic'] = extractor.topic_distributions(corpus, k=num_topics)
+    if 'topic' in features:
+        output['topic'] = extractor.topic_distributions(corpus, k=num_topics)
 
-    if config['deep']:
-        pass
-
-    return features
+    return output
 
 
 def integrate_audio_feat(features, audio_h5):

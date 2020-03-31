@@ -1,6 +1,7 @@
-from os.path import join, basename, dirname, splitext, exists
+from os.path import join, basename, dirname, splitext, exists, split
 import argparse
 import logging
+import json
 
 import numpy as np
 
@@ -23,6 +24,20 @@ SAVE_FN = {
 }
 
 
+class FeatureSetAction(argparse.Action):
+    CHOICES = {'linguistic', 'liwc', 'value', 'personality', 'topic'}
+    def __call__(self, parser, namespace, values, option_string=None):
+        if values:
+            for value in values:
+                if value not in self.CHOICES:
+                    message = ("invalid choice: {0!r} (choose from {1})"
+                               .format(value,
+                                       ', '.join([repr(action)
+                                                  for action in self.CHOICES])))
+                    raise argparse.ArgumentError(self, message)
+            setattr(namespace, self.dest, values)
+
+
 def extract_argparse():
     # process the arguments
     parser = argparse.ArgumentParser(
@@ -38,22 +53,12 @@ def extract_argparse():
     parser.add_argument('--format', default='csv', type=str,
                         choices=set(EXTENSIONS),
                         help='file format to be saved')
-
-    # most of the features below should be going to be separated
-    # as the subcommand, to handle each of hyper paramters more elegantly
-    # for now it's just quick-and-dirty implementation for internal use
-    parser.add_argument('--linguistic', dest='linguistic', action='store_true')
-    parser.add_argument('--liwc', dest='liwc', action='store_true')
-    parser.add_argument('--value', dest='value', action='store_true')
-    parser.add_argument('--personality', dest='personality', action='store_true')
-    parser.add_argument('--topic', dest='topic', action='store_true')
-    parser.set_defaults(
-        linguistic=False, liwc=False, value=False,
-        personality=False, topic=False
-    )
     parser.add_argument('--inventory', dest='inventory', type=str, default=None,
                         help=('filename contains dictionary contains category-words pair'
                               ' that is used for the target inventory'))
+    parser.add_argument('--features', nargs="*", action=FeatureSetAction,
+                        default=['linguistic', 'personality', 'value', 'topic'],
+                        help='indicators for the desired featuresets')
     return parser.parse_args()
 
 
@@ -61,25 +66,7 @@ def extract():
     """command line toolchain for feature extraction
     """
     args = extract_argparse()
-    flags = {
-        'linguistic': args.linguistic,
-        'liwc': args.linguistic,
-        'value': args.value,
-        'personality': args.value,
-        'topic': args.topic,
-        'deep': False
-    }
-    ext_all = False if any([v for v in flags.values()]) else True
-    if ext_all:
-        flags = {k:True for k in flags.keys()}
-
-    # setup custom inventory
-    if args.inventory is None:
-        custom_inven = None
-    elif not exists(args.inventory):
-        raise ValueError('[ERROR] inventory file not found!')
-    else:
-        custom_inven = json.load(open(args.inventory))
+    flags = set(args.features)
 
     # 1. loading the data 
     texts = [line.strip() for line in open(args.text)]
@@ -89,14 +76,20 @@ def extract():
 
     # 2. initiate the extractor
     extractor = TextFeatureExtractor(args.w2v)
-    if custom_inven is not None:
-        extractor.psych_inventories['inventory'] = custom_inven
-        flags['inventory'] = True
+
+    # setup custom inventory
+    if args.inventory is not None:
+        if not exists(args.inventory):
+            raise ValueError('[ERROR] inventory file not found!')
+        else:
+            custom_inven = json.load(open(args.inventory))
+            extractor.psych_inventories['inventory'] = custom_inven
+            flags.add('inventory')
 
     # 3. run the extraction
-    features = _extract(corpus, extractor, config=flags)
+    features = _extract(corpus, extractor, features=flags)
 
-    # 5. save the file to the disk
+    # 4. save the file to the disk
     out_fn = join(
         args.out_path,
         splitext(basename(args.text))[0] + '_feat' + EXTENSIONS[args.format]
