@@ -38,5 +38,4 @@ setup(name='lyricpsych',
               "data/value_inventory_Wilson18.json"
           ]
       },
-      include_package_data=True,
       zip_safe=False)
