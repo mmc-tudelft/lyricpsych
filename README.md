@@ -35,7 +35,7 @@ $ lyricpsych-extract \
     - [ ] unused scripts
   - [ ] restructuring
     - [ ] split `task` to the separate sub-module
-    - [ ] separate `fm` and `als_feat` to the separate repo
+    - [x] separate `fm` and `als_feat` to the separate repo
 - [ ] Documentation
   - [ ] docstrings
   - [ ] landing page description
