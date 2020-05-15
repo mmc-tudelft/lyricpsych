@@ -290,7 +290,7 @@ def _compute_linguistic_features(words_corpus, show_progress=True,
     return feats
 
 
-def extract(corpus, extractor, filt_non_eng=True,
+def extract(corpus, extractor,
             filter_thresh=[5, .3], num_topics=25,
             features={
                 'liwc', 'linguistic', 'personality',
@@ -301,7 +301,6 @@ def extract(corpus, extractor, filt_non_eng=True,
     Inputs:
         corpus (lyricpsych.data.Corpus): data contains all the texts
         extractor (lyricpsych.pipelines.TextFeatureExtractor): lyrics feature extractor
-        filt_non_eng (bool): indicates whether filter non-English lyrics
         filter_thresh (list of float): filtering threshold for rare / popular words
         num_topics (int): number of topics to be extracted
         config (set of string): extraction configuration
@@ -394,13 +393,13 @@ if __name__ == "__main__":
     data = load_lyrics_db(args.mxm_dir)
     ids, texts = tuple(zip(*data))
     corpus = Corpus(ids, texts, filter_thresh=None,
-                    filt_non_eng=filt_non_eng)
+                    filt_non_eng=args.is_eng)
 
     # 2. initiate the extractor
     extractor = TextFeatureExtractor(args.w2v)
 
     # 3. extract lyrics features
-    features = extract(corpus, extractor, args.audio_h5, args.is_eng)
+    features = extract(corpus, extractor, args.audio_h5)
 
     # 4. integrate audio feature
     if exists(args.audio_h5):
