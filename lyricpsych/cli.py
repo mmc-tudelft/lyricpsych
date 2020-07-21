@@ -109,7 +109,7 @@ def extract():
     texts = [line.strip() for line in open(args.text)]
     ids = list(range(len(texts)))
     corpus = Corpus(ids, texts, filter_thresh=None,
-                    filt_stopwords=False,
+                    filter_stopwords=False,
                     filt_non_eng=args.filt_non_eng)
 
     # 2. extract features
