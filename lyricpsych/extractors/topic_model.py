@@ -5,24 +5,25 @@ os.environ['NUMBA_NUM_THREADS'] = '2'
 
 import numpy as np
 import numba as nb
+from tqdm import tqdm
 
-from .base import BaseTextFeatureExtractor
+from .base import BaseTextFeatureExtractor, TopicFeature
 
 
-class TopicModelExtractor(BaseTextFeatureExtractor):
+class TopicModel(BaseTextFeatureExtractor):
     def __init__(self, k=25):
         super().__init__()
-        
+
         self.k = k
         self._topic_model = PLSA(k, n_iters=30)
-        
+
     def extract(self, corpus):
         """
         """
-        plsa.fit(corpus.doc_term)
+        self._topic_model.fit(corpus.doc_term)
         return TopicFeature(
-            k, corpus.ids, plsa.doc_topic, plsa.topic_term,
-            corpus.id2word.token2id
+            self.k, corpus.ids, self._topic_model.doc_topic,
+            self._topic_model.topic_term, corpus.id2word.token2id
         )
 
 
@@ -74,7 +75,7 @@ class PLSA:
 
     def score(self, X):
         return _perplexity(X, self, self.n_iters)
-    
+
 
 @nb.njit(parallel=True, nogil=True, fastmath=True)
 def plsa_numba(dt_row, dt_col, dt_val, theta, beta, n_iter, eps=1e-10):
@@ -97,7 +98,7 @@ def plsa_numba(dt_row, dt_col, dt_val, theta, beta, n_iter, eps=1e-10):
     # phi_sum = np.empty((nnz,), dtype=dtype)
     beta_sum = np.empty((K,), dtype=dtype)
     theta_sum = np.empty((M,), dtype=dtype)
-    
+
     # for update
     theta_next = np.empty((M, K), dtype=dtype)
     beta_next = np.empty((K, V), dtype=dtype)
@@ -118,7 +119,7 @@ def plsa_numba(dt_row, dt_col, dt_val, theta, beta, n_iter, eps=1e-10):
                 s += phi[z]
             if s == 0:
                 s = eps
-            
+
             for z in range(K):
                 q = dt_val[idx] * phi[z] / s
                 beta_next[z, t] += q
@@ -149,7 +150,7 @@ def _learn_doc_topic(dt_row, dt_col, dt_val, theta, beta, n_iter, eps=1e-10):
     nnz = len(dt_val)
     dtype = theta.dtype
     theta_sum = np.empty((M,), dtype=dtype)
-    
+
     # for update
     theta_next = np.empty((M, K), dtype=dtype)
 
@@ -167,7 +168,7 @@ def _learn_doc_topic(dt_row, dt_col, dt_val, theta, beta, n_iter, eps=1e-10):
                 s += phi[z]
             if s == 0:
                 s = eps
-            
+
             for z in range(K):
                 q = dt_val[idx] * phi[z] / s
                 theta_next[d, z] += q
@@ -177,8 +178,7 @@ def _learn_doc_topic(dt_row, dt_col, dt_val, theta, beta, n_iter, eps=1e-10):
         for d in range(M):
             for z in range(K):
                 theta[d, z] = theta_next[d, z] / theta_sum[d]
-                
-                
+
 def _perplexity(test_docs, plsa, n_iter=30):
     """ Compute perplexity of given topic model
 

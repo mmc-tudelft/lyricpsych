@@ -1,7 +1,14 @@
-from .base import BaseTextFeatureExtractor
+import logging
+from collections import Counter
+from itertools import chain
+
+import pandas as pd
+
+from ..data import load_liwc_dict
+from .base import BaseTextFeatureExtractor, TextFeature
 
 
-class LIWCExtractor(BaseTextFeatureExtractor):
+class LIWC(BaseTextFeatureExtractor):
     def __init__(self):
         super().__init__()
 
@@ -20,10 +27,7 @@ class LIWCExtractor(BaseTextFeatureExtractor):
                     self.liwc_dict[word].append(cat)
 
             # learn the trie
-            self._liwc_trie = (
-                TextFeatureExtractor
-                ._build_liwc_trie(self.liwc_dict)
-            )
+            self._liwc_trie = LIWC._build_liwc_trie(self.liwc_dict)
 
     @staticmethod
     def _build_liwc_trie(liwc_dict):
@@ -66,8 +70,7 @@ class LIWCExtractor(BaseTextFeatureExtractor):
             char = token[token_i]
             if char in trie:
                 return (
-                    TextFeatureExtractor
-                    ._search_trie(trie[char], token, token_i+1)
+                   LIWC._search_trie(trie[char], token, token_i+1)
                 )
         return []
 
@@ -79,19 +82,19 @@ class LIWCExtractor(BaseTextFeatureExtractor):
         """
         TODO: deal with special cases (i.e. `(i) like*`)
         """
-        if hasattr(self, '_liwc_trie'):
-            feats = []
-            for words in corpus.ngram_corpus:
-                # extract liwc registers
-                cnt = Counter(chain.from_iterable([
-                    TextFeatureExtractor._search_trie(self._liwc_trie, word)
-                    for word in words
-                ]))
-                feats.append(dict(cnt))
+        if not self.is_liwc:
+            raise ValueError('[ERROR] LIWC is not loaded!')
 
-            # convert to the dataframe -> text feature
-            feats = pd.DataFrame(feats).fillna(0.)
-            feats = TextFeature('LIWC', corpus.ids, feats.values, feats.columns)
-            return feats
-        else:
-            return None
+        feats = []
+        for words in corpus.ngram_corpus:
+            # extract liwc registers
+            cnt = Counter(chain.from_iterable([
+                LIWC._search_trie(self._liwc_trie, word)
+                for word in words
+            ]))
+            feats.append(dict(cnt))
+
+        # convert to the dataframe -> text feature
+        feats = pd.DataFrame(feats).fillna(0.)
+        feats = TextFeature('LIWC', corpus.ids, feats.values, feats.columns)
+        return feats

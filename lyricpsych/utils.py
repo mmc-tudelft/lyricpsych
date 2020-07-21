@@ -23,8 +23,8 @@ import h5py
 
 from tqdm import tqdm
 
-from .feature import TopicFeature
-from .topic_model import PLSA
+from .extractors.base import TopicFeature
+from .extractors.topic_model import PLSA
 from .files import mxm2msd as mxm2msd_fn
 
 # intantiate lemmatizer / stopwords
@@ -616,3 +616,46 @@ def save_feature_csv(features, out_fn, delim=','):
         f.write(delim.join(agg_feat_cols) + '\n')
         for row in agg_feature:
             f.write(delim.join(['{:.8f}'.format(y) for y in row]) + '\n')
+
+
+def normalize_matrix(a, order=2, axis=1):
+    """
+    """
+    norm = np.linalg.norm(a, order, axis=axis)
+    if axis == 0:
+        return a / norm[None]
+    elif axis == 1:
+        return a / norm[:, None]
+    else:
+        raise ValueError('[ERROR] axis should be either 0 or 1!')
+
+
+def integrate_audio_feat(features, audio_h5):
+    # TODO: this part should be moved to MFCC feature extraction
+    #       and stored in the feature file for better integrity
+    n_coeffs = 40
+    audio_feat_cols = (
+        ['mean_mfcc{:d}'.format(i) for i in range(n_coeffs)] +
+        ['var_mfcc{:d}'.format(i) for i in range(n_coeffs)] +
+        ['mean_dmfcc{:d}'.format(i) for i in range(n_coeffs)] +
+        ['var_dmfcc{:d}'.format(i) for i in range(n_coeffs)] +
+        ['mean_ddmfcc{:d}'.format(i) for i in range(n_coeffs)] +
+        ['var_ddmfcc{:d}'.format(i) for i in range(n_coeffs)]
+    )
+    with h5py.File(audio_h5, 'r') as hf:
+        tid2row = {tid:i for i, tid in enumerate(hf['tids'][:])}
+        feats = []
+        for mxmid in corpus.ids:
+            tid = mxm2msd[mxmid]
+            if tid in tid2row:
+                feats.append(hf['feature'][tid2row[tid]][None])
+            else:
+                feats.append(np.zeros((1, len(audio_feat_cols))))
+        audio_feat = np.concatenate(feats, axis=0)
+        # idx = [tid2row[mxm2msd[mxmid]] for mxmid in corpus.ids]
+        # audio_feat = hf['feature'][idx]
+        features['audio'] = TextFeature(
+            'mfcc', corpus.ids, audio_feat, audio_feat_cols
+        )
+
+    return features
