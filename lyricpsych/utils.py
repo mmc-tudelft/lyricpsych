@@ -162,7 +162,8 @@ def preprocessing(data, unit='unigram',
             rows.append(i)
             cols.append(j)
             vals.append(v)
-    X = sp.coo_matrix((vals, (rows, cols)))
+    X = sp.coo_matrix((vals, (rows, cols)),
+                      shape=(corpus.num_docs, len(corpus.id2token)))
     return texts, corpus, id2word, X
 
 
