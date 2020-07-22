@@ -149,6 +149,8 @@ def extract():
         # get features
         features[flag.lower()] = ext.extract(corpus)
 
+    print([v.features.shape for k, v in features.items()])
+
     # 3. save the file to the disk
     out_fn = join(
         args.out_path,
