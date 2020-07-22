@@ -132,7 +132,7 @@ def extract():
                   '`glove-twitter-25` is loaded...')
             w2v = load_word_embedding('glove-twitter-25')
 
-
+    print(corpus.doc_term.shape, len(corpus.ngram_corpus))
     corpus.filter_thresh = filter_thresh
     corpus.filter_stopwords = True
     corpus._preproc()
