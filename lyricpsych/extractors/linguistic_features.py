@@ -19,6 +19,7 @@ class LinguisticFeature(BaseTextFeatureExtractor):
         """
         """
         feature = _compute_linguistic_features(corpus.ngram_corpus, verbose)
+        feature = feature.dropna(axis=1)
         return TextFeature(
             'linguistic', corpus.ids, feature.values, feature.columns
         )
@@ -44,17 +45,21 @@ def _compute_linguistic_features(words_corpus, show_progress=True,
         for i, words in enumerate(words_corpus):
             feat = {}
             feat['num_words'] = N = _num_words(words)
-            # feat['num_rep_phrase'] = _num_rep_phrase(words, phrase_dict)
-            feat['num_unique_words'] = _num_unique_words(words)
-            feat['num_stop_words'] = _num_stop_words(words)
-            feat['num_rare_words'] = _num_extreme_words(words, rare_words)
-            feat['num_common_words'] = _num_extreme_words(words, common_words)
             if N is not None:
+                # feat['num_rep_phrase'] = _num_rep_phrase(words, phrase_dict)
+                feat['num_unique_words'] = _num_unique_words(words)
+                feat['num_stop_words'] = _num_stop_words(words)
+                feat['num_rare_words'] = _num_extreme_words(words, rare_words)
+                feat['num_common_words'] = _num_extreme_words(words, common_words)
                 feat['ratio_unique_words'] = feat['num_unique_words'] / N
                 feat['ratio_stop_words'] = feat['num_stop_words'] / N
                 feat['ratio_rare_words'] = feat['num_rare_words'] / N
                 feat['ratio_common_words'] = feat['num_common_words'] / N
             else:
+                feat['num_unique_words'] = 0
+                feat['num_stop_words'] = 0
+                feat['num_rare_words'] = 0
+                feat['num_common_words'] = 0
                 feat['ratio_unique_words'] = None
                 feat['ratio_stop_words'] = None
                 feat['ratio_rare_words'] = None

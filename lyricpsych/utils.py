@@ -162,8 +162,9 @@ def preprocessing(data, unit='unigram',
             rows.append(i)
             cols.append(j)
             vals.append(v)
+
     X = sp.coo_matrix((vals, (rows, cols)),
-                      shape=(corpus.num_docs, len(corpus.id2token)))
+                      shape=(len(texts), len(id2word.token2id)))
     return texts, corpus, id2word, X
 
 
@@ -619,10 +620,11 @@ def save_feature_csv(features, out_fn, delim=','):
             f.write(delim.join(['{:.8f}'.format(y) for y in row]) + '\n')
 
 
-def normalize_matrix(a, order=2, axis=1):
+def normalize_matrix(a, order=2, axis=1, eps=1e-12):
     """
     """
     norm = np.linalg.norm(a, order, axis=axis)
+    norm = np.maximum(norm, eps)
     if axis == 0:
         return a / norm[None]
     elif axis == 1:
