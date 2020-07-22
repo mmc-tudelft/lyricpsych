@@ -103,6 +103,7 @@ class InventoryScore(BaseTextFeatureExtractor):
         if self.w2v is None:
             raise ValueError('[ERROR] word embedding model is not loaded!')
 
+        print(len(corpus.ngram_corpus), corpus.doc_term.shape)
         doc_embs = []
         for wrds in corpus.ngram_corpus:
             embs = [self.w2v[w] for w in wrds if w in self.w2v]
@@ -118,6 +119,8 @@ class InventoryScore(BaseTextFeatureExtractor):
         scores = doc_embs @ self.grp_embs.T
         if not self.compute_similarity:
             scores = 1 - scores
+
+        print(scores.shape)
 
         # convert to data to text feature
         feats = TextFeature(
