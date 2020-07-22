@@ -139,12 +139,18 @@ def extract():
     for flag in flags:
         if flag.lower() == 'topic':
             ext = TopicModel()
+
         elif flag.lower() == 'value':
             ext = InventoryScore('value', w2v)
+
         elif flag.lower() == 'personality':
             ext = InventoryScore('personality', w2v)
+
         elif flag.lower() == 'custom_inventory':
             ext = InventoryScore(custom_inven, w2v)
+
+        else:
+            continue
 
         # get features
         features[flag.lower()] = ext.extract(corpus)
