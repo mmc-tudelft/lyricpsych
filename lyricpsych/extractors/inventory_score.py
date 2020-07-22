@@ -108,9 +108,10 @@ class InventoryScore(BaseTextFeatureExtractor):
             embs = [self.w2v[w] for w in wrds if w in self.w2v]
             if len(embs) == 0:
                 print('[ERROR] found there is no words matched with W2V model!')
-                continue
-            embs = normalize_matrix(np.array(embs), axis=1)
-            doc_embs.append(embs.mean(0))
+                doc_embs.append(np.zeros((self.w2v.vector_size,)))
+            else:
+                embs = normalize_matrix(np.array(embs), axis=1)
+                doc_embs.append(embs.mean(0))
         doc_embs = np.array(doc_embs)
 
         # compute the score [cosine similarity]
