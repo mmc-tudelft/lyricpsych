@@ -8,9 +8,6 @@ import argparse
 import logging
 import json
 
-import numpy as np
-
-from .extractors.base import TextFeature
 from .extractors import (InventoryScore,
                          LinguisticFeature,
                          LIWC,

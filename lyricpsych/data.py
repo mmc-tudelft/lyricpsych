@@ -6,7 +6,6 @@ import json
 from tqdm import tqdm
 import numpy as np
 from scipy import sparse as sp
-import pandas as pd
 from sklearn.feature_extraction.text import TfidfTransformer
 
 from .files import personality_adj, value_words, liwc_dict, mxm2msd

@@ -1,4 +1,6 @@
 import os
+
+# TODO: generalize and make this more adaptive/interactive following steps
 os.environ['MKL_NUM_THREADS'] = '1'
 os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['NUMBA_NUM_THREADS'] = '2'

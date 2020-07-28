@@ -1,4 +1,3 @@
-import os
 from os.path import exists, basename, splitext
 import json
 
@@ -8,7 +7,7 @@ import gensim.downloader
 import jsonschema
 
 from .base import BaseTextFeatureExtractor, TextFeature
-from ..data import load_personality_adj, load_value_words, Corpus
+from ..data import load_personality_adj, load_value_words
 from ..utils import normalize_matrix
 
 """
