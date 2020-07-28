@@ -26,21 +26,22 @@ $ lyricpsych-extract \
 
 ## TODO list
 
-- [ ] refactoring
-  - [ ] split extractor to dedicated extractors
-  - [ ] minor refactorings
-  - [ ] clean up
-    - [ ] unused functions
-    - [ ] unused data files
-    - [ ] unused scripts
-  - [ ] restructuring
-    - [ ] split `task` to the separate sub-module
+- [x] refactoring
+  - [x] split extractor to dedicated extractors
+  - [x] minor refactorings
+  - [x] clean up
+    - [x] unused functions
+    - [x] unused data files
+    - [x] unused scripts
+  - [x] restructuring
+    - [x] split `task` to the separate sub-module
     - [x] separate `fm` and `als_feat` to the separate repo
 - [ ] Documentation
   - [ ] docstrings
   - [ ] landing page description
-- [ ] features
-  - [ ] experimental run reproduction cli
+  - [ ] doc generation
+- [x] features
+  - [x] experimental run reproduction cli
 - [ ] deploy
   - [ ] writing testings
   - [ ] CI [Travis integration]
