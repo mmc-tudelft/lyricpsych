@@ -1,10 +1,7 @@
-from os.path import basename, dirname, splitext, join
-import string
-from itertools import chain, combinations
+from itertools import chain
 from functools import partial
 
 import numpy as np
-import numba as nb
 from scipy import sparse as sp
 
 import gensim
@@ -14,10 +11,6 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.util import ngrams
-
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import ShuffleSplit
 
 import h5py
 
@@ -287,7 +280,6 @@ def load_csr_data(h5py_fn, row='users', col='items'):
         numpy.ndarray: user list
         numpy.ndarray: item list
     """
-    import h5py
     with h5py.File(h5py_fn, 'r') as hf:
         data = (hf['data'][:], hf['indices'][:], hf['indptr'][:])
         X = sp.csr_matrix(data)
@@ -373,7 +365,9 @@ def normalize_matrix(a, order=2, axis=1, eps=1e-12):
         raise ValueError('[ERROR] axis should be either 0 or 1!')
 
 
-def integrate_audio_feat(features, audio_h5):
+def integrate_audio_feat(features, audio_h5, mxm2msd):
+    """
+    """
     # TODO: this part should be moved to MFCC feature extraction
     #       and stored in the feature file for better integrity
     n_coeffs = 40
