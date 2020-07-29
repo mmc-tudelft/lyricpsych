@@ -5,7 +5,7 @@ import pandas as pd
 
 from tqdm import tqdm
 
-from ..utils import SW as stop_words
+from ..preprocessing import SW as stop_words
 from .base import BaseTextFeatureExtractor, TextFeature
 
 

@@ -87,9 +87,11 @@ class InventoryScore(BaseTextFeatureExtractor):
             ids.append(grp)
 
             # get embeddings
-            embeddings = np.array(
-                [self.w2v[w] for w in wrds if w in self.w2v]
-            )
+            embeddings = [self.w2v[w] for w in wrds if w in self.w2v]
+            if len(embeddings) == 0:
+                embeddings = np.zeros((self.w2v.vector_size,))
+            else:
+                embeddings = np.array(embeddings)
             embeddings = normalize_matrix(embeddings, axis=1)
 
             # register average embeddings

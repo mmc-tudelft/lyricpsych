@@ -17,7 +17,7 @@ $ lyricpsych-extract \
     /path/to/the/lyrics_data.csv \
     /path/for/output/ \
     --w2v glove-twitter-25 \
-    --features linguistic value liwc topic
+    --features linguistic value personality topic
 ```
 
 
@@ -40,7 +40,6 @@ Currently it's in its alpha version. It means some extractors are not fully vali
     - [x] separate `fm` and `als_feat` to the separate repo
 - [ ] Documentation
   - [ ] docstrings
-  - [ ] landing page description
   - [ ] doc generation
 - [x] features
   - [x] experimental run reproduction cli
@@ -57,3 +56,7 @@ Jaehun Kim, Sandy Manolios
 ## Reference
 
 TBD
+
+## Acknowledgement
+
+- Thanks to [henryre](https://github.com/henryre), as our PLSA implementation of this API is extension of [numba-plsa](https://github.com/henryre/numba-plsa).

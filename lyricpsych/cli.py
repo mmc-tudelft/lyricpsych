@@ -1,9 +1,7 @@
 from os.path import (join,
                      basename,
-                     dirname,
                      splitext,
-                     exists,
-                     split)
+                     exists)
 import argparse
 import logging
 import json
@@ -17,7 +15,7 @@ from .data import Corpus
 from .utils import save_feature_h5, save_feature_csv
 
 
-K = 25
+K = 25  # found by internal cross-validation. can be improved
 THRESH = [5, 0.3]
 EXTENSIONS = {
     'csv': '.csv',
