@@ -1,3 +1,16 @@
+class BaseTextFeatureExtractor:
+    def extract(self, corpus):
+        """ Extract text feature for given corpus
+
+        Inputs:
+            corpus (lyricpsych.data.Corpus): data object
+
+        Outputs:
+            feature (lyricpsych.feature.TextFeature): output
+        """
+        raise NotImplementedError()
+
+
 class TextFeature:
     def __init__(self, name, ids, features, columns):
         self.name = name
@@ -7,10 +20,10 @@ class TextFeature:
         }
         self.features = features
         self.columns = columns
-        
+
     def __str__(self):
         return self.name
-    
+
 
 class TopicFeature(TextFeature):
     def __init__(self, k, ids, doc_topic, topic_term, id2word):
