@@ -1,11 +1,9 @@
-# LyricPsych
+# LyricPsych: towards a psychologically validated feature extractors for the lyrics data
 
-General descriptions goes here
+This package contains a number of feature extraction methods on textual data, mostly expecting musical lyrics. As an work-in-progress development phase, we will continuously validate and update the package later on. Currently, several feature extraction methods including `linguistic features`, `topic_modeling`, `psychology inventory based feature estimations`, etc.
 
 
-## Install
-
-current alpha version is only for internal use, not for public usage.
+## Getting Started
 
 To install this package, we recommend you use the python virtual environment. Inside the virtualenv, installation is using `pip` and `git`.
 
@@ -22,6 +20,10 @@ $ lyricpsych-extract \
     --features linguistic value liwc topic
 ```
 
+
+## Contributing
+
+Currently it's in its alpha version. It means some extractors are not fully validated, and may have a unexpected behavior. We will continue to work on improving those aspects, but also we are more than welcoming contributions. We are open to take issues and pull request.
 
 
 ## TODO list
@@ -46,6 +48,11 @@ $ lyricpsych-extract \
   - [ ] writing testings
   - [ ] CI [Travis integration]
   - [ ] register to PyPI
+
+
+## Authors
+
+Jaehun Kim, Sandy Manolios
 
 ## Reference
 
