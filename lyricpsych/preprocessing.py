@@ -15,7 +15,7 @@ from nltk.util import ngrams
 
 from tqdm import tqdm
 
-from .extractors.topicmodel import PLSA
+from .extractors.topic_model import PLSA
 
 
 # intantiate lemmatizer / stopwords
