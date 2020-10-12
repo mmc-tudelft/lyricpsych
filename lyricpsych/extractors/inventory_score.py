@@ -37,13 +37,21 @@ class InventoryScore(BaseTextFeatureExtractor):
         super().__init__()
 
         # this can take minutes if the model if big one
-        self.w2v = gensim_w2v
+        self._init_word2vec(gensim_w2v)
         self.inventory = inventory
         self.compute_similarity = compute_similarity
         self.inventory, self.inventory_name = self._load_inventory(inventory)
 
         # pre-compute the inventory
         self.grps, self.grp_embs = self._compute_inventory_avg_emb()
+
+    def _init_word2vec(self, gensim_w2v):
+        """"""
+        # if no w2v model is specified, we load "glove-twitter-25"
+        self.w2v = load_word_embedding(
+            'glove-twitter-25' if gensim_w2v is None
+            else gensim_w2v
+        )
 
     @staticmethod
     def _load_inventory(inventory, use_filename=True):

@@ -8,7 +8,7 @@ This package contains a number of feature extraction methods on textual data, mo
 To install this package, we recommend you use the python virtual environment. Inside the virtualenv, installation is using `pip` and `git`.
 
 ```console
-$ pip install git+https://github.com/mmc-tudelft/lyricpsych.git@packaging
+$ pip install git+https://github.com/mmc-tudelft/lyricpsych.git
 ```
 feature extractor `lyricpsych-extract` installed along with the package. The usage of the `lyricpsych-extractor` can be found in the `-h` option. For instance, you can extract `personality`, `value`, `topic`, `linguistic` features by using the example below:
 

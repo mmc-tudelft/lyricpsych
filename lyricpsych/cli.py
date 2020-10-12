@@ -100,7 +100,7 @@ def extract():
             custom_inven = json.load(open(args.inventory))
             flags.add('custom_inventory')
 
-    # 1. loading the data 
+    # 1. loading the data
     texts = [line.strip() for line in open(args.text)]
     ids = list(range(len(texts)))
     corpus = Corpus(ids, texts, filter_thresh=None,
@@ -125,7 +125,7 @@ def extract():
         else:
             print('No word2vec model specified! '
                   '`glove-twitter-25` is loaded...')
-            w2v = load_word_embedding('glove-twitter-25')
+            w2v = None
 
     corpus.filter_thresh = filter_thresh
     corpus.filter_stopwords = True
